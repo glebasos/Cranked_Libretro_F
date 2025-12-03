@@ -74,7 +74,7 @@ namespace cranked {
         }
 
         [[nodiscard]] bool isInvalid() const {
-            return isnanf((float)x) or isnanf((float)y);
+            return std::isnan((float)x) or std::isnan((float)y);
         }
 
         [[nodiscard]] CollisionPoint_32 asCollisionPoint() const {

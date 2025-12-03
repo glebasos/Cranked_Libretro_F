@@ -1,199 +1,124 @@
-# Cranked
-*Cranked* is a work in progress unofficial Playdate Console emulator. This project aims to provide an open source way of running
-Playdate console games on a variety of platforms. They Playdate SDK does include a Simulator program for use in development of 
-Playdate games, but it is unable to play game compiled for an actual Playdate console and requires a binary to be compiled for 
-the native system the simulator runs on. In addition, the official Simulator is only available for the major desktop platform. 
-*Cranked* runs actual Playdate games by means of emulating the Arm processor that powers the console. For now, functionality 
-is mostly limited to compatible SDK demo programs, but a majority of the Playdate API is implemented at some level (Audio aside). 
+# Cranked Libretro
 
-## Screenshots
-### Flippy Fish
-![Flippy Fish](media/Flippy_Fish.png)
-### Hammer Down
-![Hammer Down](media/Hammer_Down.png)
-### Sprite Collisions
-![Sprite Collisions](media/Sprite_Collisions.png)
-### Native Debugging
-![Native Debugging](media/Debugging.png)
+A libretro core port of [Cranked](https://github.com/TheLogicMaster/Cranked) - A Playdate emulator.
 
 ## About
-This project was started as an excuse to reverse engineer the platform and implement the first working emulator
-for said platform. See [Sources](#sources) for other projects which have done much of the initial research into the Playdate
-file formats and other interfaces. Development has mostly been done by implementing the API as described by the official
-documentation then filling in the gaps and testing by comparing program execution with the official simulator. 
+
+This is a fork focused on improving the libretro port of Cranked for use with RetroArch and other libretro frontends.
+
+## Improvements
+
+### Core Functionality
+- **Game Loading**: Fixed PDX/PDX.zip file handling and extraction
+- **Display Output**: Corrected framebuffer format (XRGB8888) and memory layout
+- **Crank Input**: Full implementation with multiple control methods
+- **Core Options**: Configuration system for customizing emulator behavior
+
+### Features Added
+- **Crank Controls**:
+  - L/R shoulder buttons for incremental rotation (5° per press)
+  - Right analog stick for direct angle control
+  - L3 button to toggle dock/undock state
+  - Configurable initial state (docked/undocked)
+  - Configurable initial angle (0-315°)
+
+- **Display Palettes**:
+  - Black & White (default)
+  - White & Black (inverted)
+  - Gray & Black
+  - Green (Game Boy style)
+  - Amber
+  - Blue
+
+### Core Options
+Access via RetroArch: `Quick Menu → Options`
+
+1. **Initial Crank State** - Whether crank starts docked or undocked
+2. **Initial Crank Angle** - Starting angle in degrees (0-315°)
+3. **Display Palette** - Choose color scheme for display
 
 ## Building
-Libraries are all embedded as submodules except for SDL2, which is required for building desktop targets.
 
-Recursively clone the repo with: `git clone --recursive https://github.com/TheLogicMaster/Cranked`.
-
-After installing dependencies, build from the project directory with the following commands (Only tested on Linux):
-```
-cmake -S . -B build
-cmake --build build
-```
-This should have built the Libretro core and the standalone executable.
-
-## Running Roms
-Loading either .pdx directories or .pdx.zip archives is supported (Only .pdx.zip for Libretro core). Run the standalone
-executable with the ROM path as the only command-line argument or load the Libretro core like any other. Most programs will
-likely crash at the moment and there is little in the way of useful debug output, so debugging from an IDE is best for now.
-There is currently no support for running encrypted ROMs from the Catalog.
-
-## Todo
-- Finish Sprites (Collision occasionally phases a sprite off-screen in Sprite Collision example)
-- Remaining graphical effects (And effects on sprites)
-- Polygon (Non-zero fill rule), Mode 7
-- Audio
-- Full font support (Alignment)
-- WAV writing
-- Finish C JSON decoding
-- Test building on Windows/Mac
-- Create a testing framework to compare console output to the official simulator (Graphics, Collisions)
-- Finish font-ends (Libretro core just crashes at the moment, Desktop has no features, Android only loads a test program)
-- Front-end should run in a separate thread
-- Java library with native libs for Android app consumption
-- Scoreboard support
-- Investigate Catalog app (Web API already documented elsewhere)
-- Ability to act as simulator (Useful debug features)
-- See if emulator can play encrypted games with a dumped key or something (Maybe limiting to just decrypted games)
-- System UI/software from SDK (Create replacement assets, *Darker Grotesque* should be able to be adopted in place of *Roobert* system font)
-- Investigate pre-2.0.0 binaries to handle uncompressed data (Use PDC flag)
-- Emulator API wrapper to hide all the messy internals, possible C compatible
-- Values checks, since plenty of null/illegal API parameters will cause a native seg-fault
-- Dynarmic native engine support for more portability
-- GitHub Actions release builds
-- USB serial functionality (As controller, dump saves, backup games?)
-- Better execution model (The current approach works, but has limitations, coroutines might be elegant, avoiding recursive Lua invocation would be good)
-- Fix git submodules to not get in detached head state
-- Can't currently build in release due to false uninitialized variable errors in Capstone
-- Native Cranked API for profiling and such, maybe exposed at a fixed address or at the end of the main PD API struct
-- LuaRuntime being based on tables rather than userdata is likely to cause incompatibility (Where not tables...) (Already requires patches.lua), and should probably use full userdata from C++
-- Better exception handling and stack traces, potentially with disassembled Asm and Lua for context, especially more Lua context, maybe even decompilation
-- Lua debugger functionality
-- Support Debug Adaptor Protocol like Simulator
-- Events/callbacks for pausing/stopping
-- Bitmap drawing performance improvements would make a large difference in overall performance
-
-## Example Compatibility
-- [x] Hello World
-- [x] Sprite Collisions
-- [x] Sprite Game
-- [x] Particles
-- [x] Life
-- [x] Exposure
-- [ ] bach.mid
-- [x] Array
-- [ ] 3D Library (Works until memory bug occurs)
-- [x] Sprite Collision Masks
-- [x] Pathfinder (Minor issue with font measuring and family switching for no-path text)
-- [ ] Mode 7 Driver
-- [ ] MIDI Player
-- [ ] Level 1-1 (Basic level loading seems to mostly work, but with tons of graphical issues and no floor, also no audio)
-- [x] Hammer Down (No audio)
-- [x] Game Template
-- [x] Flippy Fish
-- [ ] Drum Machine
-- [x] Controller Test
-- [ ] Asheteroids (Issue with sprites and Bump, huge memory usage for cells)
-- [x] Accelerometer Test
-- [x] 2020
-- [ ] JSON
-- Single File Examples
-  - [ ] Animator (Animation of crank-star is messed up at polygon close region, font measuring is wrong, ellipse drawing needs angle normalization)
-  - [ ] Arcs (Ellipse drawing needs work)
-  - [ ] Audio
-  - [x] Balls
-  - [x] Blur Dither (Text formatting, many graphical differences, un-implemented blur features)
-  - [x] Collisions
-  - [x] Crank
-  - [x] Draw Mode
-  - [ ] Draw Sampled (Mode 7 not implemented)
-  - [ ] Draw Sampled 2
-  - [x] Fade Fast (Text alignment not implemented)
-  - [ ] File (Output does not match)
-  - [x] Grid View (Minor graphical issues)
-  - [x] Icosohedron
-  - [x] Image Sample
-  - [x] Pachinko
-  - [x] Perlin Distribution
-  - [x] Perlin 1
-  - [x] Perlin 2
-  - [x] Perlin 3
-  - [x] Perlin 4
-  - [x] Perlin Field
-  - [ ] Snd Test
-  - [x] Sprite Scaling
-  - [x] Stencil
-  - [ ] Synth
-  - [x] Tile Map Test
-  - [ ] Wave Table
-  - [x] Zorder
-
-# Game Compatibility
-- [x] [Bobby](https://github.com/yannicka/bobby-playdate) (Graphical differences with text measuring and round rect thickness)
-
-## Internals
-- Unicorn to provide Arm CPU emulation
-- Custom memory allocator to allocate heap memory in a single 32-bit region for easier virtual memory mapping
-- C++ template magic plus libFFI to translate calls between emulated Arm, Lua, and C++ natives, handling type marshaling and virtual memory mapping
-- Auto-generated 64-bit safe equivalent Playdate API and data structures by parsing the official headers
-- Lua objects represented by tables with userdata field and metatables
-- Reference counting for all native resources (Higher memory usage when using many resources such as with fonts)
-- Inheritance of audio classes is actually done using C++ virtual inheritance, which means that all parent class types addresses need to be mapped to account for class layouts
-
-## GDB Debugging
-Requires gdb-multiarch and is run from the project directory with `gdb-multiarch -x gdb_setup`.
-- Connect: `target remote localhost:1337`
-- Set symbols: `add-symbol-file pdex.elf 0x60000020` (Or add `-ex 'add-symbol-file "pdex.elf" 0x60000020'` to gdb-multiarch command)
-- Use normal commands like `break`, `step`, `continue`, `ctrl+c`, etc.
-
-## Profiling
-### Building
-A built Tracy profiler server is required to view profiled data (Prebuilt releases available for windows).
-See [Tracy](https://github.com/wolfpld/tracy) documentation for full instructions and dependencies.
 ```bash
-# Unix building example
-cd core/libs/tracy/profiler
-mkdir build && cd build
-cmake -DLEGACY .. # Legacy flag needed only for X11
-make
-```
-### Usage
-Run the Tracy Profiler server and the Cranked client should connect and start streaming data when run. 
-All C++ functions which start with a `ZoneScoped` statement will be profiled. Lua code can also be
-profiled with `tracy.ZoneBegin()` and `tracy.ZoneEnd()` around code tp be profiled.
-
-## Intellij Plugin
-A CLion plugin was created to aid in debugging graphical issues. This ended up being a complete hack because the APIs are
-undocumented and there are no examples. Ended up using a member called `myDriverDoNotUse` just to get it working, so best
-practices are definitely being followed, but at least it can allow visualizing bitmaps while stepping through graphics code.
-Something like the [OpenImageDebugger](https://github.com/OpenImageDebugger/OpenImageDebugger) project which is based on GDB
-and a Python UI would be more robust, but would be a lot more work to implement. Not really recommended to use this plugin, but
-it is functional in CLion *2024.3.2*.
-
-## Updating Submodules
-```
-git submodule foreach git pull
+cd build
+cmake ..
+make cranked_libretro -j8
 ```
 
-## Libraries and Resources
-- [libzippp](https://github.com/ctabin/libzippp) for .pdx.zip archives
-- [ImGui](https://github.com/ocornut/imgui) for desktop program UI
-- [Lua54 fork](https://github.com/scratchminer/lua54) for Lua execution
-- [Nlohmann Json](https://github.com/nlohmann/json) for JSON manipulation
-- [Unicorn](https://github.com/unicorn-engine/unicorn) for native emulation
-- [Libretro header](https://raw.githubusercontent.com/libretro/libretro-common/master/include/libretro.h) for building Libretro core
-- [Capstone](https://github.com/capstone-engine/capstone) for disassembly
-- [Bump](https://github.com/kikito/bump.lua) for collision handling reference
-- [Encoded Asheville SansLight font from Playdate SDK (CC BY 4.0)](https://play.date/dev/) for system font
-- [Tracy](https://github.com/wolfpld/tracy) for profiling
+The compiled core will be at: `build/libretro/libcranked_libretro.dylib` (macOS) or `.so` (Linux)
 
-## Sources
-- https://sdk.play.date/inside-playdate
-- https://sdk.play.date/inside-playdate-with-c
-- https://github.com/cranksters/playdate-reverse-engineering
-- https://github.com/scratchminer/pd-emu
-- https://github.com/ARM-software/abi-aa/blob/2982a9f3b512a5bfdc9e3fea5d3b298f9165c36b/aapcs32/aapcs32.rst
-- https://www.lua.org/manual/5.4/
-- https://github.com/adafruit/Adafruit-GFX-Library
+## Installation
+
+Copy the compiled core to your RetroArch cores directory:
+- **macOS**: `~/Library/Application Support/RetroArch/cores/`
+- **Linux**: `~/.config/retroarch/cores/`
+- **Windows**: `%APPDATA%\RetroArch\cores\`
+
+## Usage
+
+1. Load the Cranked core in RetroArch
+2. Load a `.pdx` or `.pdx.zip` file
+3. Configure options in `Quick Menu → Options`
+4. Play!
+
+## Original Project
+
+This is a fork of [Cranked](https://github.com/TheLogicMaster/Cranked) by TheLogicMaster.
+
+For the full Cranked emulator with desktop UI and other features, please visit the original repository.
+
+## License
+
+This project inherits the license from the original Cranked project.
+
+## Credits
+
+- **Original Cranked Emulator**: TheLogicMaster
+- **Libretro Port Improvements**: kurogedelic
+- **Playdate SDK**: Panic Inc.
+
+## Status
+
+### Working
+- Lua games
+- Native (C) games
+- Crank input
+- Display output
+- Core options
+
+### Known Issues
+- Some native games may have display corruption (diagonal artifacts)
+- Audio support is incomplete
+- No support for encrypted Catalog games
+
+## Todo (Libretro-specific)
+
+- Fix display corruption in some native games
+- Implement audio support
+- Add more display palette options
+- Performance optimizations for bitmap operations
+- Save state support
+
+## Libraries and Credits
+
+### Core Libraries
+- [Unicorn](https://github.com/unicorn-engine/unicorn) - ARM CPU emulation
+- [Lua 5.4 fork](https://github.com/scratchminer/lua54) - Lua runtime
+- [libzippp](https://github.com/ctabin/libzippp) - PDX archive handling
+- [Nlohmann Json](https://github.com/nlohmann/json) - JSON parsing
+- [Capstone](https://github.com/capstone-engine/capstone) - Disassembly (optional)
+- [Tracy](https://github.com/wolfpld/tracy) - Profiling (optional)
+
+### Resources
+- [Playdate SDK](https://play.date/dev/) - Official SDK and documentation
+- [Libretro API](https://github.com/libretro/libretro-common) - RetroArch integration
+- [Playdate Reverse Engineering](https://github.com/cranksters/playdate-reverse-engineering) - Community research
+
+### Credits
+- **Original Cranked Emulator**: [TheLogicMaster](https://github.com/TheLogicMaster)
+- **Libretro Port Improvements**: kurogedelic
+- **Playdate Console**: Panic Inc.
+
+## Contributing
+
+This is a focused fork for libretro improvements. For general Cranked development, please contribute to the [original project](https://github.com/TheLogicMaster/Cranked).

@@ -221,8 +221,24 @@ namespace cranked {
         }
 
         Audio getAudio(const string &name) {
-            auto data = readRomFile(name, ".pda", { ".wav", ".aiff" });
-            return readAudio(data.data(), data.size());
+            // Try multiple common Playdate sound locations and extensions.
+            // Priority: .pda (packed) -> .wav -> .aiff
+            vector<string> bases { name, string("sounds/") + name };
+            for (auto &base : bases) {
+                try {
+                    auto data = readRomFile(base, ".pda", { ".wav", ".aiff" });
+                    return readAudio(data.data(), data.size());
+                } catch (exception &) {}
+                try {
+                    auto data = readRomFile(base + ".wav");
+                    return readAudio(data.data(), data.size());
+                } catch (exception &) {}
+                try {
+                    auto data = readRomFile(base + ".aiff");
+                    return readAudio(data.data(), data.size());
+                } catch (exception &) {}
+            }
+            throw CrankedError("No such audio: {}", name);
         }
 
         Video getVideo(const string &name) {

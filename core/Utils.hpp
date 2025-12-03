@@ -221,11 +221,8 @@ namespace cranked {
 
     template<typename TP>
     time_t to_time_t(TP tp) {
-#if __ANDROID__
+        // Use manual conversion for compatibility with older C++ standards
         return chrono::system_clock::to_time_t(chrono::time_point_cast<chrono::system_clock::duration>(tp - TP::clock::now() + chrono::system_clock::now()));
-#else
-        return chrono::system_clock::to_time_t(chrono::clock_cast<chrono::system_clock>(tp));
-#endif
     }
 
     template<class T2, class T1>

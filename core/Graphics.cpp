@@ -1509,6 +1509,11 @@ void Graphics::flushDisplayBuffer() {
     ZoneScoped;
     // Todo: Mosaic (Could it be implemented as a box blur? Compare to blur effect)
 
+    static int flush_count = 0;
+    if (flush_count < 10) {
+        fprintf(stderr, "Graphics::flushDisplayBuffer() called (count=%d)\n", flush_count++);
+    }
+
     for (int i = 0; i < DISPLAY_HEIGHT; i++) {
         int y = (displayFlippedY ? DISPLAY_HEIGHT - 1 - i : i) - displayOffset.y;
         if (y >= 0 and y < DISPLAY_HEIGHT) // Check before truncating to avoid affecting display offset
@@ -1520,10 +1525,11 @@ void Graphics::flushDisplayBuffer() {
             auto color = frameBuffer->getBufferPixel(x, y) ^ displayInverted ? displayBufferOnColor : displayBufferOffColor;
             if (y < 0 or y >= DISPLAY_HEIGHT / displayScale or x < 0 or x >= DISPLAY_WIDTH / displayScale)
                 color = frameBufferContext.backgroundColor == LCDSolidColor::White ? displayBufferOnColor : displayBufferOffColor;
+            int index = i * DISPLAY_WIDTH + j; // 1D array indexing
             if (displayBufferNativeEndian)
-                displayBufferRGBA[i][j] = color;
+                displayBufferRGBA[index] = color;
             else
-                writeUint32BE((uint8 *) &displayBufferRGBA[i][j], color);
+                writeUint32BE((uint8 *) &displayBufferRGBA[index], color);
         }
     }
 

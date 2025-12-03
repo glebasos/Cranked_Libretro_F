@@ -25,10 +25,15 @@ void Cranked::init() {
 }
 
 void Cranked::load(const string &path) {
+    fprintf(stderr, "Cranked::load() called with path: %s\n", path.c_str());
     unload();
+    fprintf(stderr, "Cranked::load() unload completed\n");
     rom = make_unique<Rom>(path, this);
+    fprintf(stderr, "Cranked::load() Rom created\n");
     rom->load();
+    fprintf(stderr, "Cranked::load() rom->load() completed\n");
     nativeEngine.load();
+    fprintf(stderr, "Cranked::load() completed\n");
 }
 
 void Cranked::unload() {
@@ -56,8 +61,13 @@ void Cranked::reset() {
     nativeEngine.reset();
 
     currentInputs = previousInputs = pressedInputs = releasedInputs = 0;
-    crankAngle = previousCrankAngle = 0;
-    crankDocked = previousCrankDocked = true;
+    // Initialize crank to 90 degrees (not 0) so games know it's been "used"
+    // In an emulator, the crank should always appear to be in a valid, usable state
+    crankAngle = previousCrankAngle = 90.0f;
+    // Set previousCrankDocked = true so first update will trigger "crankUndocked" callback
+    // This signals to CoreLibs that crank is available from the start
+    crankDocked = false;
+    previousCrankDocked = true;
 
     heap.reset(); // Reset heap only after objects are freed
 }
@@ -146,8 +156,9 @@ void Cranked::update() {
 
                 if (crankAngle != previousCrankAngle) {
                     auto change = crankAngle - previousCrankAngle;
-                    if (luaEngine.invokeLuaInputCallback("cranked", {change, change})) // Todo: `Acceleration`
-                        previousCrankAngle = crankAngle;
+                    luaEngine.invokeLuaInputCallback("cranked", {change, change}); // Todo: `Acceleration`
+                    // NOTE: Do NOT update previousCrankAngle here! It must only be updated by getCrankChange()
+                    // so that getCrankChange() returns the correct delta when called by the game
                 }
 
                 if (crankDocked and not previousCrankDocked)
@@ -173,7 +184,8 @@ void Cranked::update() {
 
     updateInternals();
 
-    currentMillis += duration_cast<chrono::milliseconds>(chrono::system_clock::now() - currentMillisStart).count(); // Todo: Does this increase while locked/in-menu?
+    // Track frame timing via lastFrameDelta and startTime; do not accumulate CPU time here
+    // currentMillis is derived from startTime in playdate_sys_getCurrentTimeMilliseconds
 
     FrameImage(graphics.displayBufferRGBA, DISPLAY_WIDTH, DISPLAY_HEIGHT, 0, false);
     FrameMark; // Todo: This isn't ideal since a single update call can span multiple frames at present

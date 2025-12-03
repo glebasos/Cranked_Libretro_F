@@ -13,9 +13,14 @@ NativeEngine::NativeEngine(Cranked &cranked) : cranked(cranked), debugger(cranke
     assertUC(uc_hook_add(nativeEngine, &unmappedWriteHook, UC_HOOK_MEM_WRITE_UNMAPPED, (void *) handleUnmappedAccess, &cranked, 1, 0), "Failed to add unmapped write hook");
 
     // Map memory
+    fprintf(stderr, "NativeEngine: Mapping heap at 0x%08X, size=0x%X, baseAddress=%p\n",
+            HEAP_ADDRESS, HEAP_SIZE, heap.baseAddress());
     assertUC(uc_mem_map_ptr(nativeEngine, HEAP_ADDRESS, HEAP_SIZE, UC_PROT_READ|UC_PROT_WRITE, heap.baseAddress()), "Failed to map heap memory");
+    fprintf(stderr, "NativeEngine: Heap mapping successful\n");
     assertUC(uc_mem_map_ptr(nativeEngine, STACK_ADDRESS, STACK_SIZE, UC_PROT_READ|UC_PROT_WRITE, stackMemory.data()), "Failed to map stack memory");
+    fprintf(stderr, "NativeEngine: Stack mapping successful\n");
     assertUC(uc_mem_map_ptr(nativeEngine, API_ADDRESS, API_MEM_SIZE, UC_PROT_READ, apiMemory.data()), "Failed to map API memory");
+    fprintf(stderr, "NativeEngine: API mapping successful\n");
 }
 
 NativeEngine::~NativeEngine() {
@@ -106,6 +111,9 @@ void NativeEngine::handleInterrupt(uc_engine *uc, uint32 interrupt, void *userda
 
 bool NativeEngine::handleUnmappedAccess(uc_engine *uc, uc_mem_type type, uint64 address, int size, int64 value, void *userdata) {
     ((Cranked *) userdata)->nativeEngine.lastBadAccessAddress = (cref_t) address;
+    fprintf(stderr, "NativeEngine: Unmapped access! type=%d, address=0x%08llX, size=%d\n", type, address, size);
+    fprintf(stderr, "  HEAP range: 0x%08X - 0x%08X\n", HEAP_ADDRESS, HEAP_ADDRESS + HEAP_SIZE);
+    fprintf(stderr, "  STACK range: 0x%08X - 0x%08X\n", STACK_ADDRESS, STACK_ADDRESS + STACK_SIZE);
     return false;
 }
 

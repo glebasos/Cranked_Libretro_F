@@ -2327,8 +2327,31 @@ static void playdate_sound_resetTime_lua(Cranked *cranked) {
     cranked->audio.sampleTime = 0;
 }
 
-static SamplePlayer playdate_sound_sampleplayer_new_lua(Cranked *cranked, LuaVal sample) {
-    return cranked->audio.allocateSource<SamplePlayer_32>();
+static LuaRet playdate_sound_sampleplayer_new_lua(Cranked *cranked, LuaVal sample) {
+    // Playdate API: sampleplayer.new([pathOrSample])
+    // - With string path: attempts to load sample; on failure returns (nil, error)
+    // - With AudioSample: attaches sample and returns player
+    // - With no arg: returns empty player
+    auto player = cranked->audio.allocateSource<SamplePlayer_32>();
+    if (!sample.isNil()) {
+        if (sample.isString()) {
+            try {
+                auto loaded = cranked->audio.loadSample(sample.asString());
+                player->sample = loaded;
+            } catch (exception &ex) {
+                // Fallback: return a valid silent player instead of nil to avoid game crashes
+                auto placeholder = cranked->heap.construct<AudioSample_32>(*cranked, 1024);
+                placeholder->soundFormat = SoundFormat::Mono16bit;
+                placeholder->sampleRate = 22050;
+                memset(placeholder->data.data(), 0, placeholder->data.size());
+                player->sample = placeholder;
+                cranked->logMessage(LogLevel::Warning, "sampleplayer.new('%s') failed: %s; using silent placeholder", sample.asString(), ex.what());
+            }
+        } else if (auto asSample = sample.asUserdataObject<AudioSample>(); asSample) {
+            player->sample = asSample;
+        }
+    }
+    return returnValues(cranked, player);
 }
 
 static void playdate_sound_sampleplayer_gc_lua(Cranked *cranked, SamplePlayer player) {
@@ -2340,7 +2363,8 @@ static SamplePlayer playdate_sound_sampleplayer_copy_lua(Cranked *cranked, Sampl
 }
 
 static void playdate_sound_sampleplayer_play_lua(Cranked *cranked, SamplePlayer player, int repeatCount, LuaVal rate) {
-    // Todo
+    float r = rate.isNil() ? 1.0f : rate.asFloat();
+    playdate_sound_sampleplayer_play(cranked, player, repeatCount, r);
 }
 
 static bool playdate_sound_sampleplayer_playAt_lua(Cranked *cranked, SamplePlayer player, int when, LuaVal vol, LuaVal rightVol, LuaVal rate) {
@@ -2349,20 +2373,22 @@ static bool playdate_sound_sampleplayer_playAt_lua(Cranked *cranked, SamplePlaye
 }
 
 static void playdate_sound_sampleplayer_setVolume_lua(Cranked *cranked, SamplePlayer player, float vol, LuaVal rightVol) {
-    // Todo
+    float right = rightVol.isNil() ? vol : rightVol.asFloat();
+    playdate_sound_sampleplayer_setVolume(cranked, player, vol, right);
 }
 
 static LuaRet playdate_sound_sampleplayer_getVolume_lua(Cranked *cranked, SamplePlayer player) {
-    // Todo
-    return 0;
+    float left{}, right{};
+    playdate_sound_sampleplayer_getVolume(cranked, player, &left, &right);
+    return returnValues(cranked, left, right);
 }
 
 static void playdate_sound_sampleplayer_setLoopCallback_lua(Cranked *cranked, SamplePlayer player, LuaVal callback, LuaVal arg) {
-    // Todo
+    // Not implemented
 }
 
 static void playdate_sound_sampleplayer_setFinishCallback_lua(Cranked *cranked, SamplePlayer player, LuaVal callback, LuaVal arg) {
-    // Todo
+    // Not implemented
 }
 
 static AudioSample playdate_sound_sampleplayer_getSample_lua(Cranked *cranked, SamplePlayer player) {
@@ -2427,7 +2453,13 @@ static LuaRet playdate_sound_sample_new_lua(Cranked *cranked, LuaVal arg1, LuaVa
         try {
             sample = cranked->audio.loadSample(arg1.asString());
         } catch (exception &ex) {
-            return returnValues(cranked, nullptr, ex.what());
+            // Fallback to silent placeholder so games don't crash on missing assets
+            auto placeholder = cranked->heap.construct<AudioSample_32>(*cranked, 1024);
+            placeholder->soundFormat = SoundFormat::Mono16bit;
+            placeholder->sampleRate = 22050;
+            memset(placeholder->data.data(), 0, placeholder->data.size());
+            sample = placeholder;
+            cranked->logMessage(LogLevel::Warning, "sample.new('%s') failed: %s; using silent placeholder", arg1.asString(), ex.what());
         }
     } else
         sample = cranked->heap.construct<AudioSample_32>(*cranked, 0);

@@ -63,6 +63,11 @@ set(cranked_sources
 
 add_library(cranked STATIC ${cranked_sources} ${lua_sources})
 target_include_directories(cranked PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} gen libs libs/lua54 libs/asio/include libs/zlib libs/tracy/public ${CMAKE_CURRENT_BINARY_DIR}/libs/ffi/include)
+# Add Boost include directory for asio
+find_package(Boost QUIET)
+if(Boost_FOUND)
+    target_include_directories(cranked PUBLIC ${Boost_INCLUDE_DIRS})
+endif()
 target_link_libraries(cranked unicorn libzippp nlohmann_json::nlohmann_json libffi dynarmic magic_enum::magic_enum ${ZLIB_LIBRARIES})
 target_compile_definitions(cranked PUBLIC LUA_COMPAT_MATHLIB)
 

@@ -107,15 +107,17 @@ void Rom::load() {
     if (zip) {
         for (auto &entry : zip->getEntries()) { // Preload zip entry data, to avoid having to abstract into common file-type API
             vector<uint8> data;
+            FileType type = FileType::UNKNOWN;
             if (entry.isFile()) {
                 data.resize(entry.getSize());
                 auto zipData = entry.readAsBinary();
                 memcpy(data.data(), zipData, data.size());
                 delete[] (char *) zipData;
+                type = getFileType(data.empty() ? nullptr : data.data());
             }
             outerFiles.emplace_back(File{
                     .name = normalizePath(entry.getName()),
-                    .type = getFileType(data.data()),
+                    .type = type,
                     .isDir = entry.isDirectory(),
                     .size = (uint32) entry.getSize(),
                     .extra = 0,
@@ -128,7 +130,7 @@ void Rom::load() {
             auto type = FileType::UNKNOWN;
             if (!entry.is_directory())
                 try {
-                    ifstream input(path / entry.path(), ios::binary);
+                    ifstream input(entry.path(), ios::binary);
                     char buffer[13]{}; // Null terminator is not strictly needed, but doesn't hurt
                     input.read(buffer, 12);
                     type = getFileType((uint8 *) buffer);
@@ -677,6 +679,8 @@ Rom::ImageCell Rom::readImageCell(const uint8 *data) {
 }
 
 Rom::FileType Rom::getFileType(const uint8 *header) {
+    if (!header)
+        return FileType::UNKNOWN;
     if (!strcmp((const char *) header, LUA_MAGIC))
         return FileType::LUAC;
     string magic(header, header + 12);

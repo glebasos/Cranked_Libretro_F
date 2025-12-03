@@ -23,6 +23,6 @@ namespace cranked {
     constexpr uint32_t STACK_ADDRESS = 0x90000000;
     constexpr uint32_t STACK_SIZE = 0x10000; // 61800 rounded up
     constexpr uint32_t HEAP_ADDRESS = 0xA0000000;
-    constexpr uint32_t HEAP_SIZE = 0x1000000; // 16 MB or 16*2^20
+    constexpr uint32_t HEAP_SIZE = 0x10000000; // 256 MB (increased for complex games)
 
 }

@@ -1,3 +1,9 @@
 cmake-build-*/
 build/
 .idea/
+
+# macOS
+.DS_Store
+
+# Project notes
+CLAUDE.md

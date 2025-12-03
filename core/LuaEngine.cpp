@@ -78,8 +78,14 @@ void LuaEngine::reset() {
 }
 
 void LuaEngine::runUpdateLoop() {
-    if (!getQualifiedLuaGlobal("playdate.update"))
+    static bool warnedNoUpdate = false;
+    if (!getQualifiedLuaGlobal("playdate.update")) {
+        if (!warnedNoUpdate) {
+            cranked.logMessage(LogLevel::Warning, "Lua: playdate.update not found; update loop idle");
+            warnedNoUpdate = true;
+        }
         return;
+    }
     lua_xmove(luaInterpreter, luaUpdateThread, 1);
     int results{};
     inLuaUpdate = true;

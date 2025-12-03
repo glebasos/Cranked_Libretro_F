@@ -86,10 +86,11 @@ void Menu::render() {
         for (int x = 0; x < DISPLAY_WIDTH; x++) {
             if (auto pixel = buffer->getPixel(x, y); pixel != LCDSolidColor::Clear) {
                 auto color = pixel == LCDSolidColor::Black ? offColor : onColor;
+                int index = y * DISPLAY_WIDTH + x; // 1D array indexing
                 if (nativeEndian)
-                    displayBuffer[y][x] = color;
+                    displayBuffer[index] = color;
                 else
-                    writeUint32BE((uint8 *) &displayBuffer[y][x], color);
+                    writeUint32BE((uint8 *) &displayBuffer[index], color);
             }
         }
     }

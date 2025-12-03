@@ -9,5 +9,8 @@ if(${USE_CAPSTONE})
 endif()
 
 add_library(cranked_libretro SHARED core.cpp)
-target_include_directories(cranked_libretro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
-target_link_libraries(cranked_libretro cranked)
+target_include_directories(cranked_libretro PRIVATE 
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_SOURCE_DIR}/core/libs/libzippp/src
+)
+target_link_libraries(cranked_libretro cranked libzippp)

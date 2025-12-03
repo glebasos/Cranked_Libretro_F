@@ -440,7 +440,15 @@ int32 cranked::playdate_sys_getLanguage(Cranked *cranked) {
 }
 
 uint32 cranked::playdate_sys_getCurrentTimeMilliseconds(Cranked *cranked) {
-    return cranked->currentMillis;
+    // Return real elapsed milliseconds since start, matching Playdate behavior
+    using namespace std::chrono;
+    static int warn_count = 0;
+    auto ms = (uint32)duration_cast<milliseconds>(system_clock::now() - cranked->startTime).count();
+    if (warn_count < 3) {
+        cranked->logMessage(LogLevel::Info, "getCurrentTimeMilliseconds=%u", ms);
+        warn_count++;
+    }
+    return ms;
 }
 
 uint32 cranked::playdate_sys_getSecondsSinceEpoch([[maybe_unused]] Cranked *cranked, uint32 *milliseconds) {

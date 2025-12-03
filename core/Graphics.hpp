@@ -569,10 +569,10 @@ namespace cranked {
         HeapAllocator &heap;
         Rom::Font systemFontSources[3]{};
         FontFamily systemFonts;
-        uint32 displayBufferRGBA[DISPLAY_HEIGHT][DISPLAY_WIDTH]{};
+        uint32 displayBufferRGBA[DISPLAY_HEIGHT * DISPLAY_WIDTH]{}; // 1D array to avoid padding issues
         bool displayBufferNativeEndian = false;
-        uint32 displayBufferOnColor = 0xB0AEA7FF;
-        uint32 displayBufferOffColor = 0x302E27FF;
+        uint32 displayBufferOnColor = 0x00FFFFFF;  // White for XRGB8888 (X=00, R=FF, G=FF, B=FF)
+        uint32 displayBufferOffColor = 0x00000000;  // Black for XRGB8888 (X=00, R=00, G=00, B=00)
         BitmapRef frameBuffer, previousFrameBuffer;
         DisplayContext frameBufferContext{ frameBuffer };
         vector<DisplayContext> displayContextStack;
