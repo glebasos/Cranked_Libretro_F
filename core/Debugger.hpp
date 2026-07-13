@@ -5,9 +5,14 @@
 
 // Todo: Debug Adaptor Protocol support for Lua and native code
 
+#include <csignal>
+#ifndef SIGTRAP
+#define SIGTRAP 5
+#endif
+
 namespace cranked {
 
-    namespace asio = boost::asio;
+    namespace asio = ::asio;
 
     class Cranked;
     class NativeEngine;

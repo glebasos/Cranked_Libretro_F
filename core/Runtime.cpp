@@ -7,6 +7,26 @@
 
 using namespace cranked;
 
+#ifdef _MSC_VER
+static int vasprintf(char **strp, const char *fmt, va_list ap) {
+    va_list copy;
+    va_copy(copy, ap);
+    int len = _vscprintf(fmt, copy);
+    va_end(copy);
+    if (len < 0)
+        return -1;
+    *strp = (char *)malloc((size_t)len + 1);
+    if (!*strp)
+        return -1;
+    int ret = vsnprintf(*strp, (size_t)len + 1, fmt, ap);
+    if (ret < 0) {
+        std::free(*strp);
+        *strp = nullptr;
+    }
+    return ret;
+}
+#endif
+
 VideoPlayer cranked::playdate_video_loadVideo(Cranked *cranked, uint8 *path) {
     auto player = cranked->graphics.getVideoPlayer((char *)path);
     player->reference();
@@ -91,7 +111,12 @@ void cranked::playdate_graphics_setClipRect(Cranked *cranked, int32 x, int32 y, 
 }
 
 void cranked::playdate_graphics_clearClipRect(Cranked *cranked) {
-    cranked->graphics.getContext().clipRect = {};
+    // No clipping means the full target bounds, not an empty rect (which would discard all drawing)
+    auto &ctx = cranked->graphics.getContext();
+    if (ctx.bitmap)
+        ctx.clipRect = {0, 0, ctx.bitmap->width, ctx.bitmap->height};
+    else
+        ctx.clipRect = {0, 0, DISPLAY_WIDTH, DISPLAY_HEIGHT};
 }
 
 void cranked::playdate_graphics_setLineCapStyle(Cranked *cranked, int32 endCapStyle) {
@@ -1360,7 +1385,7 @@ static int json_decode(Cranked *cranked, json_decoder_32 *functions, json_value_
                             cranked->nativeEngine.invokeEmulatedFunction<void, ArgType::void_t, ArgType::ptr_t, ArgType::ptr_t, ArgType::struct2_t>
                                     (parentContext.decoder.didDecodeArrayValue, &parentContext.decoder, parentContext.arrayIndex, sublist);
                     } else {
-                        auto keyData = vheap_vector(parentContext.lastKey.begin(), parentContext.lastKey.end() + 1, cranked->heap.allocator<char>());
+                        auto keyData = vheap_vector<char>(parentContext.lastKey.begin(), parentContext.lastKey.end() + 1, cranked->heap.allocator<char>());
                         if (parentContext.decoder.didDecodeTableValue)
                             cranked->nativeEngine.invokeEmulatedFunction<void, ArgType::void_t, ArgType::ptr_t, ArgType::ptr_t, ArgType::struct2_t>
                                     (parentContext.decoder.didDecodeTableValue, &parentContext.decoder, keyData.data(), sublist);
@@ -1378,7 +1403,7 @@ static int json_decode(Cranked *cranked, json_decoder_32 *functions, json_value_
                 if (context.decoder.returnString)
                     return true;
                 auto key = parsed.get<string>();
-                auto keyData = vheap_vector(key.begin(), key.end(), cranked->heap.allocator<char>());
+                auto keyData = vheap_vector<char>(key.begin(), key.end(), cranked->heap.allocator<char>());
                 bool shouldDecode = true;
                 context.lastKey = key;
                 if (context.decoder.shouldDecodeTableValueForKey)
@@ -1429,7 +1454,7 @@ static int json_decode(Cranked *cranked, json_decoder_32 *functions, json_value_
                                     (context.decoder.didDecodeArrayValue, &stack.back().decoder, context.arrayIndex, parseValue());
                     }
                 } else {
-                    auto keyData = vheap_vector(context.lastKey.begin(), context.lastKey.end(), cranked->heap.allocator<char>());
+                    auto keyData = vheap_vector<char>(context.lastKey.begin(), context.lastKey.end(), cranked->heap.allocator<char>());
                     if (context.decoder.didDecodeTableValue)
                         cranked->nativeEngine.invokeEmulatedFunction<void, ArgType::void_t, ArgType::ptr_t, ArgType::ptr_t, ArgType::struct2_t>
                                 (context.decoder.didDecodeTableValue, &stack.back().decoder, keyData.data(), parseValue());
@@ -1454,7 +1479,7 @@ static int json_decode(Cranked *cranked, json_decoder_32 *functions, json_value_
 int32 cranked::playdate_json_decode(Cranked *cranked, json_decoder_32 *functions, json_reader_32 reader, json_value_32 *outval) {
     constexpr int BUFFER_SEGMENT = 512;
     int size = 0;
-    vheap_vector buffer(BUFFER_SEGMENT, cranked->heap.allocator<char>());
+    vheap_vector<char> buffer(BUFFER_SEGMENT, cranked->heap.allocator<char>());
     while (true) {
         int returned = cranked->nativeEngine.invokeEmulatedFunction<int32, ArgType::int32_t, ArgType::uint32_t, ArgType::ptr_t, ArgType::int32_t>
                 (reader.read, reader.userdata, buffer.data() + size, buffer.size() - size);
@@ -1481,7 +1506,7 @@ static void encoderWrite(Cranked *cranked, json_encoder_32 *encoder, const char 
 
 static void encoderWrite(Cranked *cranked, json_encoder_32 *encoder, const string &string) {
     // Use vector rather than heap_string to prevent non-heap addresses for small strings
-    auto data = vheap_vector(string.c_str(), string.c_str() + string.size(), cranked->heap.allocator<char>());
+    auto data = vheap_vector<char>(string.c_str(), string.c_str() + string.size(), cranked->heap.allocator<char>());
     encoderWrite(cranked, encoder, cranked->toVirtualAddress(data.data()), (int)string.length());
 }
 
@@ -1988,8 +2013,15 @@ void cranked::playdate_sound_fileplayer_freePlayer(Cranked *cranked, FilePlayer 
 }
 
 int32 cranked::playdate_sound_fileplayer_loadIntoPlayer(Cranked *cranked, FilePlayer player, uint8 *path) {
-    // Todo
-    return 0;
+    try {
+        player->bufferedSample = cranked->audio.loadSample((const char *)path);
+        player->samplePosition = 0;
+        player->sampleOffset = 0;
+        return 1;
+    } catch (exception &ex) {
+        cranked->logMessage(LogLevel::Warning, "fileplayer load '%s' failed: %s", (const char *)path, ex.what());
+        return 0;
+    }
 }
 
 void cranked::playdate_sound_fileplayer_setBufferLength(Cranked *cranked, FilePlayer player, float bufferLen) {
@@ -1997,8 +2029,14 @@ void cranked::playdate_sound_fileplayer_setBufferLength(Cranked *cranked, FilePl
 }
 
 int32 cranked::playdate_sound_fileplayer_play(Cranked *cranked, FilePlayer player, int32 repeat) {
-    // Todo
-    return 0;
+    if (!player->bufferedSample)
+        return 0;
+    player->playing = true;
+    player->paused = false;
+    player->repeat = repeat;
+    player->loops = 0;
+    player->playbackDirection = 1;
+    return 1;
 }
 
 int32 cranked::playdate_sound_fileplayer_isPlaying(Cranked *cranked, FilePlayer player) {
@@ -2012,6 +2050,8 @@ void cranked::playdate_sound_fileplayer_pause(Cranked *cranked, FilePlayer playe
 void cranked::playdate_sound_fileplayer_stop(Cranked *cranked, FilePlayer player) {
     player->playing = false;
     player->sampleOffset = 0;
+    player->samplePosition = 0;
+    player->playbackDirection = 1;
 }
 
 void cranked::playdate_sound_fileplayer_setVolume(Cranked *cranked, FilePlayer player, float left, float right) {
@@ -2027,11 +2067,18 @@ void cranked::playdate_sound_fileplayer_getVolume(Cranked *cranked, FilePlayer p
 }
 
 float cranked::playdate_sound_fileplayer_getLength(Cranked *cranked, FilePlayer player) {
+    if (player->bufferedSample) {
+        auto &sample = *player->bufferedSample;
+        if (sample.sampleRate > 0)
+            return (float)(sample.data.size() / (soundFormatIsStereo(sample.soundFormat) ? 4 : 2)) / (float)sample.sampleRate;
+    }
     return player->file ? soundFramesToSeconds((int) player->file->romData->size()) : 0;
 }
 
 void cranked::playdate_sound_fileplayer_setOffset(Cranked *cranked, FilePlayer player, float offset) {
-    // Todo
+    auto rate = player->bufferedSample ? player->bufferedSample->sampleRate : (uint32)AUDIO_SAMPLING_RATE;
+    player->samplePosition = (double)offset * rate;
+    player->sampleOffset = (int)player->samplePosition;
 }
 
 void cranked::playdate_sound_fileplayer_setRate(Cranked *cranked, FilePlayer player, float rate) {
@@ -2132,8 +2179,14 @@ void cranked::playdate_sound_sampleplayer_setSample(Cranked *cranked, SamplePlay
 
 int32 cranked::playdate_sound_sampleplayer_play(Cranked *cranked, SamplePlayer player, int32 repeat, float rate) {
     player->playing = true;
+    player->paused = false;
     player->repeat = repeat;
-    player->rate = rate;
+    if (rate != 0)
+        player->rate = rate;
+    player->loops = 0;
+    player->samplePosition = 0;
+    player->sampleOffset = 0;
+    player->playbackDirection = 1;
     return true;
 }
 
@@ -2144,6 +2197,8 @@ int32 cranked::playdate_sound_sampleplayer_isPlaying(Cranked *cranked, SamplePla
 void cranked::playdate_sound_sampleplayer_stop(Cranked *cranked, SamplePlayer player) {
     player->playing = false;
     player->sampleOffset = 0;
+    player->samplePosition = 0;
+    player->playbackDirection = 1;
 }
 
 void cranked::playdate_sound_sampleplayer_setVolume(Cranked *cranked, SamplePlayer player, float left, float right) {
@@ -2163,7 +2218,9 @@ float cranked::playdate_sound_sampleplayer_getLength(Cranked *cranked, SamplePla
 }
 
 void cranked::playdate_sound_sampleplayer_setOffset(Cranked *cranked, SamplePlayer player, float offset) {
-    player->sampleOffset = soundFramesFromSeconds(offset);
+    auto rate = player->sample ? player->sample->sampleRate : (uint32)AUDIO_SAMPLING_RATE;
+    player->samplePosition = (double)offset * rate;
+    player->sampleOffset = (int)player->samplePosition;
 }
 
 void cranked::playdate_sound_sampleplayer_setRate(Cranked *cranked, SamplePlayer player, float rate) {

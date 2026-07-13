@@ -1,13 +1,18 @@
 project(core)
 
-find_package(Python3)
-find_package(PythonInterp)
+find_package(Python3 COMPONENTS Interpreter)
+if (NOT PYTHON_EXECUTABLE)
+    set(PYTHON_EXECUTABLE ${Python3_EXECUTABLE})
+endif ()
 
 find_package(ZLIB)
 
 if (NOT ZLIB_FOUND)
     add_subdirectory(libs/zlib)
     set(ZLIB_LIBRARIES zlib)
+    set(CRANKED_ZLIB_INCLUDE libs/zlib ${CMAKE_CURRENT_BINARY_DIR}/libs/zlib)
+else ()
+    set(CRANKED_ZLIB_INCLUDE ${ZLIB_INCLUDE_DIRS})
 endif ()
 
 option(USE_TRACY "Use Tracy profiling" OFF)
@@ -19,8 +24,6 @@ set(LIBZIP_LIBRARY libzip)
 set(_libzip_pkgcfg " ")
 
 add_subdirectory(libs/unicorn)
-add_subdirectory(libs/asio)
-add_subdirectory(libs/dynarmic)
 add_subdirectory(libs/libzip)
 add_subdirectory(libs/libzippp)
 add_subdirectory(libs/nlohmann_json)
@@ -62,14 +65,15 @@ set(cranked_sources
 )
 
 add_library(cranked STATIC ${cranked_sources} ${lua_sources})
-target_include_directories(cranked PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} gen libs libs/lua54 libs/asio/include libs/zlib libs/tracy/public ${CMAKE_CURRENT_BINARY_DIR}/libs/ffi/include)
+target_include_directories(cranked PUBLIC ${CMAKE_CURRENT_SOURCE_DIR} gen libs libs/lua54 libs/asio_standalone/include ${CRANKED_ZLIB_INCLUDE} libs/tracy/public ${CMAKE_CURRENT_BINARY_DIR}/libs/ffi/include)
+target_compile_definitions(cranked PUBLIC ASIO_STANDALONE)
 # Add Boost include directory for asio
 find_package(Boost QUIET)
 if(Boost_FOUND)
     target_include_directories(cranked PUBLIC ${Boost_INCLUDE_DIRS})
 endif()
-target_link_libraries(cranked unicorn libzippp nlohmann_json::nlohmann_json libffi dynarmic magic_enum::magic_enum ${ZLIB_LIBRARIES})
-target_compile_definitions(cranked PUBLIC LUA_COMPAT_MATHLIB)
+target_link_libraries(cranked unicorn libzippp nlohmann_json::nlohmann_json libffi magic_enum::magic_enum ${ZLIB_LIBRARIES})
+target_compile_definitions(cranked PUBLIC LUA_COMPAT_MATHLIB FFI_BUILDING)
 
 if(USE_CAPSTONE)
     target_link_libraries(cranked capstone)

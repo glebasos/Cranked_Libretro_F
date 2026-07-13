@@ -228,7 +228,9 @@ namespace cranked {
                 try {
                     auto data = readRomFile(base, ".pda", { ".wav", ".aiff" });
                     return readAudio(data.data(), data.size());
-                } catch (exception &) {}
+                } catch (exception &ex) {
+                    logMessage(LogLevel::Warning, "getAudio('%s') attempt '%s' failed: %s", name.c_str(), base.c_str(), ex.what());
+                }
                 try {
                     auto data = readRomFile(base + ".wav");
                     return readAudio(data.data(), data.size());
@@ -271,7 +273,7 @@ namespace cranked {
         static File *findSystemFile(string path);
 
         static Font readSystemFont(const string &path) {
-            auto file = findSystemFile(fs::path("System/Fonts") / path);
+            auto file = findSystemFile((fs::path("System/Fonts") / path).generic_string());
             if (!file)
                 throw CrankedError("No such system file: " + path);
             return readFont(file->data.data(), file->data.size());

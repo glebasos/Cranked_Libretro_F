@@ -14,3 +14,6 @@ target_include_directories(cranked_libretro PRIVATE
     ${CMAKE_SOURCE_DIR}/core/libs/libzippp/src
 )
 target_link_libraries(cranked_libretro cranked libzippp)
+if (WIN32)
+    target_link_libraries(cranked_libretro dbghelp)
+endif ()

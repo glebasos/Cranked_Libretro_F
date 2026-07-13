@@ -136,7 +136,7 @@ void Rom::load() {
                     type = getFileType((uint8 *) buffer);
                 } catch (exception &) {}
             outerFiles.emplace_back(File{
-                    .name = normalizePath(entry.path().lexically_relative(path)),
+                    .name = normalizePath(entry.path().lexically_relative(path).generic_string()),
                     .type = type,
                     .isDir = entry.is_directory(),
                     .size = entry.is_directory() ? 0 : (uint32) entry.file_size(),
@@ -164,7 +164,7 @@ void Rom::load() {
         // Format is 16 byte magic, 16 byte MD5, decompressed size, Code and data size, relative address of shim function, relocation count
         // Last N 4-byte ints of compressed data are relocation offsets
         const int HEADER_SIZE = 0x30; // Magic + 16 byte MD5 + 4 32-bit integers
-        if (strcmp((char *) pdexData.data(), PDX_MAGIC) != 0)
+        if (strncmp((char *) pdexData.data(), PDX_MAGIC, strlen(PDX_MAGIC)) != 0)
             throw CrankedError("Invalid PDX magic");
         auto decompressedSize = *(uint32 *) &pdexData[0x20];
         combinedProgramSize = *(uint32 *) &pdexData[0x24];
@@ -225,7 +225,7 @@ vector<uint8> Rom::readRomFile(string name, const string &extension, const vecto
         memcpy(data.data(), zipData, data.size());
         delete[] (char *) zipData;
     } else
-        data = readFileData(path / name);
+        data = readFileData((path / name).string());
     return data;
 }
 
@@ -267,7 +267,7 @@ vector<string> Rom::listRomFiles(string base, bool recursive) {
 
 vector<Rom::File> Rom::loadPDZ(const vector<uint8> &data) {
     vector<File> files;
-    if (data.size() <= strlen(PDZ_MAGIC) or strcmp(PDZ_MAGIC, (char *) data.data()) != 0)
+    if (data.size() <= strlen(PDZ_MAGIC) or strncmp(PDZ_MAGIC, (char *) data.data(), strlen(PDZ_MAGIC)) != 0)
         throw CrankedError("Invalid PDZ magic");
     auto flags = readUint32LE(&data[12]);
     if (flags & 0x40000000)
@@ -309,7 +309,7 @@ vector<Rom::File> Rom::loadPDZ(const vector<uint8> &data) {
 }
 
 Rom::Font Rom::readFont(const uint8 *data, size_t dataSize) {
-    if (strcmp(FONT_MAGIC, (char *) data) != 0)
+    if (strncmp(FONT_MAGIC, (char *) data, strlen(FONT_MAGIC)) != 0)
         throw CrankedError("Bad font magic");
     auto flags = readUint32LE(&data[12]);
     bool compressed = flags & 0x80000000;
@@ -418,7 +418,7 @@ Rom::Font Rom::readFontData(const uint8 *data, bool wide) {
 
 
 Rom::StringTable Rom::readStringTable(const uint8 *data, size_t dataSize) {
-    if (strcmp(STRING_TABLE_MAGIC, (char *) data) != 0)
+    if (strncmp(STRING_TABLE_MAGIC, (char *) data, strlen(STRING_TABLE_MAGIC)) != 0)
         throw CrankedError("Bad string table magic");
     auto flags = readUint32LE(&data[12]);
     bool compressed = flags & 0x80000000;
@@ -449,11 +449,11 @@ Rom::StringTable Rom::readStringTable(const uint8 *data, size_t dataSize) {
 }
 
 Rom::Audio Rom::readAudio(const uint8 *data, size_t dataSize) {
-    if (strcmp(AUDIO_MAGIC, (char *) data) != 0)
+    if (strncmp(AUDIO_MAGIC, (char *) data, strlen(AUDIO_MAGIC)) != 0)
         throw CrankedError("Bad audio magic");
     auto headerWord = readUint32LE(data + 12);
-    auto sampleRate = headerWord >> 8;
-    auto soundFormat = SoundFormat(headerWord & 0xFF);
+    auto sampleRate = headerWord & 0xFFFFFF; // uint24 sample rate followed by uint8 format
+    auto soundFormat = SoundFormat(headerWord >> 24);
     bool stereo = soundFormat == SoundFormat::Stereo8bit or soundFormat == SoundFormat::Stereo16bit or soundFormat == SoundFormat::StereoADPCM;
     auto audioDataSize = dataSize - 16;
     Audio audio {.soundFormat = soundFormat, .sampleRate = sampleRate};
@@ -488,8 +488,10 @@ Rom::Audio Rom::readAudio(const uint8 *data, size_t dataSize) {
                 15289, 16818, 18500, 20350, 22385, 24623, 27086, 29794,
                 32767,
         };
-        auto blockSize = readUint16LE(data + 16);
-        auto blocks = audioDataSize / blockSize;
+        auto blockSize = (size_t)readUint16LE(data + 16);
+        if (blockSize == 0 or blockSize <= (stereo ? 8u : 4u) or blockSize > audioDataSize)
+            throw CrankedError("Invalid ADPCM block size");
+        auto blocks = (audioDataSize - 2) / blockSize; // Block data starts after the uint16 block size
         auto samplesPerBlock = (blockSize - (stereo ? 8 : 4)) * 2; // 4 byte header per-channel, 4-bits per sample
         auto samples = blocks * samplesPerBlock;
         audio.samples.resize(samples);
@@ -497,15 +499,17 @@ Rom::Audio Rom::readAudio(const uint8 *data, size_t dataSize) {
             int predictorLeft{}, predictorRight{};
             int stepIndexLeft{}, stepIndexRight{};
             int stepLeft{}, stepRight{};
-            auto blockData = data + 16 + blockSize * i;
-            predictorLeft = readUint16LE(blockData);
+            auto blockData = data + 16 + 2 + blockSize * i;
+            predictorLeft = (int16)readUint16LE(blockData);
             blockData += 2;
-            stepIndexLeft = blockData[0];
+            stepIndexLeft = min((int)blockData[0], 88);
+            stepLeft = IMA_STEP_TABLE[stepIndexLeft];
             blockData += 2; // Last byte is zero
             if (stereo) {
-                predictorRight = readUint16LE(blockData);
+                predictorRight = (int16)readUint16LE(blockData);
                 blockData += 2;
-                stepIndexRight = blockData[0];
+                stepIndexRight = min((int)blockData[0], 88);
+                stepRight = IMA_STEP_TABLE[stepIndexRight];
                 blockData += 2;
             }
             for (int j = 0; j < samplesPerBlock / 2; j++) {
@@ -539,7 +543,7 @@ Rom::Audio Rom::readAudio(const uint8 *data, size_t dataSize) {
 }
 
 Rom::Image Rom::readImage(const uint8 *data, size_t dataSize) {
-    if (strcmp(IMAGE_MAGIC, (char *) data) != 0)
+    if (strncmp(IMAGE_MAGIC, (char *) data, strlen(IMAGE_MAGIC)) != 0)
         throw CrankedError("Bad image magic");
     auto flags = readUint32LE(&data[12]);
     bool compressed = flags & 0x80000000;
@@ -562,7 +566,7 @@ Rom::Image Rom::readImage(const uint8 *data, size_t dataSize) {
 }
 
 Rom::ImageTable Rom::readImageTable(const uint8 *data, size_t dataSize) {
-    if (strcmp(IMAGE_TABLE_MAGIC, (char *) data) != 0)
+    if (strncmp(IMAGE_TABLE_MAGIC, (char *) data, strlen(IMAGE_TABLE_MAGIC)) != 0)
         throw CrankedError("Bad image table magic");
     auto flags = readUint32LE(&data[12]);
     bool compressed = flags & 0x80000000;
@@ -594,7 +598,7 @@ Rom::ImageTable Rom::readImageTable(const uint8 *data, size_t dataSize) {
 }
 
 Rom::Video Rom::readVideo(const uint8 *data, size_t dataSize) {
-    if (strcmp(VIDEO_MAGIC, (char *) data) != 0)
+    if (strncmp(VIDEO_MAGIC, (char *) data, strlen(VIDEO_MAGIC)) != 0)
         throw CrankedError("Bad video magic");
     data += 16; // Previous 32-bit word is reserved
     auto frameCount = readUint16LE(data);
@@ -681,7 +685,7 @@ Rom::ImageCell Rom::readImageCell(const uint8 *data) {
 Rom::FileType Rom::getFileType(const uint8 *header) {
     if (!header)
         return FileType::UNKNOWN;
-    if (!strcmp((const char *) header, LUA_MAGIC))
+    if (!strncmp((const char *) header, LUA_MAGIC, strlen(LUA_MAGIC)))
         return FileType::LUAC;
     string magic(header, header + 12);
     if (magic == IMAGE_MAGIC)

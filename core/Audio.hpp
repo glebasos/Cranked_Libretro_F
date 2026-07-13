@@ -58,6 +58,7 @@ namespace cranked {
 
         float leftVolume = 1.0f, rightVolume = 1.0f;
         bool playing{};
+        bool completionPending{}; // Set when playback finishes; consumed by Audio::sampleAudio to fire callbacks
         cref_t completionCallback{};
         cref_t completionCallbackUserdata{};
     };
@@ -117,6 +118,8 @@ namespace cranked {
         AudioPlayerBase(const AudioPlayerBase &other, ResourceType type, void *address);
 
         int sampleOffset{};
+        double samplePosition{}; // Fractional playback cursor in source frames
+        int playbackDirection = 1; // -1 while reversed during ping-pong looping
         float rate = 1.0f;
         bool paused{};
         int repeat{};
@@ -130,11 +133,10 @@ namespace cranked {
     struct FilePlayer_32 : AudioPlayerBase {
         explicit FilePlayer_32(Cranked &cranked);
 
-        void sampleAudio(int16 *left, int16 *right, int length) override {
-            // Todo
-        }
+        void sampleAudio(int16 *left, int16 *right, int length) override;
 
         FileRef file{};
+        AudioSampleRef bufferedSample{}; // Entire file decoded up-front rather than streamed
         bool stopOnUnderrun{};
         bool underran{};
         float leftFadeTarget{}, rightFadeTarget{};
@@ -147,9 +149,7 @@ namespace cranked {
 
         SamplePlayer copy();
 
-        void sampleAudio(int16 *left, int16 *right, int length) override {
-            // Todo
-        }
+        void sampleAudio(int16 *left, int16 *right, int length) override;
 
         AudioSampleRef sample{};
         float oneShotLeftVolume{}, oneShotRightVolume{};

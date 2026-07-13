@@ -105,7 +105,7 @@ static void playdate_setButtonQueueSize(Cranked *cranked, int size) {
 
 static LuaRet playdate_file_modtime_lua(lua_State *context, const char *path) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_modtime_lua");
     FileStat_32 stat{}; // Official implementation returns garbage on non-existent file, so don't worry about error checking
     Cranked::fromLuaContext(context)->files.stat(path, stat);
     lua_createtable(context, 0, 6);
@@ -121,7 +121,7 @@ static LuaRet playdate_file_modtime_lua(lua_State *context, const char *path) {
 
 static int playdate_file_getSize_lua(Cranked *context, const char *path) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_getSize_lua");
     FileStat_32 stat{};
     if (context->files.stat(path, stat))
         return -1;
@@ -130,7 +130,7 @@ static int playdate_file_getSize_lua(Cranked *context, const char *path) {
 
 static LuaRet playdate_file_getType_lua(lua_State *context, const char *path) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_getType_lua");
     auto type = Cranked::fromLuaContext(context)->files.getType(path);
     if (type)
         lua_pushstring(context, type);
@@ -141,7 +141,7 @@ static LuaRet playdate_file_getType_lua(lua_State *context, const char *path) {
 
 static bool playdate_file_isdir_lua(Cranked *context, const char *path) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_isdir_lua");
     FileStat_32 stat{};
     context->files.stat(path, stat);
     return stat.isdir;
@@ -149,7 +149,7 @@ static bool playdate_file_isdir_lua(Cranked *context, const char *path) {
 
 static LuaRet playdate_file_listFiles_lua(lua_State *context, const char *path, bool showHidden) {
     if (!path)
-        throw CrankedError("Nil path");
+        path = ""; // Device allows listFiles() with no argument, listing the root directory
     vector<string> files;
     if (Cranked::fromLuaContext(context)->files.listFiles(path, showHidden, files)) {
         lua_pushnil(context);
@@ -164,19 +164,19 @@ static LuaRet playdate_file_listFiles_lua(lua_State *context, const char *path, 
 
 static bool playdate_file_delete_lua(Cranked *context, const char *path, bool recursive) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_delete_lua");
     return !context->files.unlink(path, recursive);
 }
 
 static bool playdate_file_exists_lua(Cranked *context, const char *path) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_exists_lua");
     return context->files.exists(path);
 }
 
 static LuaRet playdate_file_open_lua(lua_State *context, const char *path, int mode) {
     if (!path)
-        throw CrankedError("Nil path");
+        throw CrankedError("Nil path in playdate_file_open_lua");
     constexpr int kFileRead = 3;
     constexpr int kFileWrite = 4;
     constexpr int kFileAppend = 8;
@@ -1488,7 +1488,8 @@ static LuaRet playdate_graphics_getTextSize_lua(Cranked *cranked, const char *st
 static LuaValRet playdate_graphics_font_new_lua(Cranked *cranked, const char *path) {
     try {
         return pushResource(cranked, cranked->graphics.getFont(path));
-    } catch (exception &) {
+    } catch (exception &ex) {
+        cranked->logMessage(LogLevel::Warning, "font.new('%s') failed: %s", path ? path : "(nil)", ex.what());
         return pushNil(cranked);
     }
 }
@@ -2362,9 +2363,10 @@ static SamplePlayer playdate_sound_sampleplayer_copy_lua(Cranked *cranked, Sampl
     return player->copy();
 }
 
-static void playdate_sound_sampleplayer_play_lua(Cranked *cranked, SamplePlayer player, int repeatCount, LuaVal rate) {
+static void playdate_sound_sampleplayer_play_lua(Cranked *cranked, SamplePlayer player, LuaVal repeatCount, LuaVal rate) {
+    int repeat = repeatCount.isNil() ? 1 : repeatCount.asInt(); // Default is play once, not loop forever
     float r = rate.isNil() ? 1.0f : rate.asFloat();
-    playdate_sound_sampleplayer_play(cranked, player, repeatCount, r);
+    playdate_sound_sampleplayer_play(cranked, player, repeat, r);
 }
 
 static bool playdate_sound_sampleplayer_playAt_lua(Cranked *cranked, SamplePlayer player, int when, LuaVal vol, LuaVal rightVol, LuaVal rate) {
@@ -2400,8 +2402,10 @@ static void playdate_sound_sampleplayer_setRateMod_lua(Cranked *cranked, SampleP
 }
 
 static FilePlayer playdate_sound_fileplayer_new_lua(Cranked *cranked, LuaVal arg1, LuaVal arg2) {
-    // Todo
-    return cranked->audio.allocateSource<FilePlayer_32>();
+    auto player = cranked->audio.allocateSource<FilePlayer_32>();
+    if (arg1.isString())
+        playdate_sound_fileplayer_loadIntoPlayer(cranked, player, (uint8 *)arg1.asString());
+    return player;
 }
 
 static void playdate_sound_fileplayer_gc_lua(Cranked *cranked, FilePlayer player) {
@@ -2409,11 +2413,12 @@ static void playdate_sound_fileplayer_gc_lua(Cranked *cranked, FilePlayer player
 }
 
 static void playdate_sound_fileplayer_load_lua(Cranked *cranked, FilePlayer player, const char *path) {
-    // Todo
+    if (path)
+        playdate_sound_fileplayer_loadIntoPlayer(cranked, player, (uint8 *)path);
 }
 
-static void playdate_sound_fileplayer_play_lua(Cranked *cranked, FilePlayer player, int repeatCount) {
-    // Todo
+static void playdate_sound_fileplayer_play_lua(Cranked *cranked, FilePlayer player, LuaVal repeatCount) {
+    playdate_sound_fileplayer_play(cranked, player, repeatCount.isNil() ? 1 : repeatCount.asInt());
 }
 
 static void playdate_sound_fileplayer_setFinishCallback_lua(Cranked *cranked, FilePlayer player, LuaVal callback, LuaVal arg) {
@@ -2500,7 +2505,7 @@ static LuaRet playdate_sound_sample_getLength_lua(Cranked *cranked, AudioSample 
     return returnValues(cranked, length, length);
 }
 
-static SamplePlayer playdate_sound_sample_play_lua(Cranked *cranked, AudioSample sample, int repeatCount, LuaVal rate) {
+static SamplePlayer playdate_sound_sample_play_lua(Cranked *cranked, AudioSample sample, LuaVal repeatCount, LuaVal rate) {
     auto player = cranked->audio.allocateSource<SamplePlayer_32>();
     player->sample = sample;
     playdate_sound_sampleplayer_play_lua(cranked, player, repeatCount, rate);

@@ -1,0 +1,22 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 4493131..e262b0e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -24,7 +24,7 @@ if(NOT INSTALL_DIRECTORY)
+     set(INSTALL_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/out)
+ endif()
+ 
+-if(WIN32 OR MINGW)
++if((WIN32 OR MINGW) AND NOT MSVC)
+     set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-deprecated-declarations -Wno-pointer-to-int-cast")
+ endif()
+ 
+@@ -68,7 +68,7 @@ elseif(CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR STREQ
+     set(TARGET ARM_WIN64)
+ elseif(CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x86")
+     set(TARGET X86_WIN32)
+-elseif(CMAKE_SYSTEM_NAME MATCHES "Windows" AND CMAKE_HOST_SYSTEM_PROCESSOR STREQUAL "x64")
++elseif(CMAKE_SYSTEM_NAME MATCHES "Windows" AND lower_system_processor MATCHES "^(x64|amd64|x86_64)$")
+     set(TARGET X86_WIN64)
+ elseif(lower_system_processor MATCHES "arm64|aarch64")
+     set(TARGET ARM64)

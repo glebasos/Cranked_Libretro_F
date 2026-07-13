@@ -86,7 +86,7 @@ void Debugger::addBreakpoint(cref_t address) {
 void Debugger::startTcpAccept() {
     if (!tcpAcceptor.is_open())
         return;
-    tcpAcceptor.async_accept(tcpSocket, [&](const boost::system::error_code &error){
+    tcpAcceptor.async_accept(tcpSocket, [&](const asio::error_code &error){
         if (error)
             startTcpAccept();
         else {
@@ -99,7 +99,7 @@ void Debugger::startTcpAccept() {
 }
 
 void Debugger::startTcpRead() {
-    tcpSocket.async_read_some(asio::buffer(tcpReceiveBuffer), [&](const boost::system::error_code& error, size_t length){
+    tcpSocket.async_read_some(asio::buffer(tcpReceiveBuffer), [&](const asio::error_code& error, size_t length){
         if (error == asio::error::eof) {
             tcpClientConnected = false;
             tcpSocket.close();
@@ -176,7 +176,7 @@ void Debugger::processPacket(string_view data) {
 }
 
 void Debugger::sendData(string data) {
-    tcpSocket.async_write_some(asio::buffer(tcpTransmitBuffers.emplace(std::move(data))), [&](const boost::system::error_code& error, size_t){
+    tcpSocket.async_write_some(asio::buffer(tcpTransmitBuffers.emplace(std::move(data))), [&](const asio::error_code& error, size_t){
         tcpTransmitBuffers.pop();
     });
 }

@@ -1,9 +1,14 @@
 cmake-build-*/
 build/
+build-*/
 .idea/
 
 # macOS
 .DS_Store
 
-# Project notes
-CLAUDE.md
+# Vendored without submodule (cloned by scripts/setup_windows.bat)
+core/libs/asio_standalone/
+
+# Desktop app runtime artifacts
+imgui.ini
+appData/

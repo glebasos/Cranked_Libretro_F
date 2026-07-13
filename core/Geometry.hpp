@@ -243,7 +243,7 @@ namespace cranked {
             };
         }
 
-        static constexpr Transform rotate(float angle) {
+        static Transform rotate(float angle) {
             return {
                 cosf(angle), -sinf(angle), 0,
                 sinf(angle), cosf(angle), 0

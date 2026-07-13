@@ -1,0 +1,64 @@
+diff --git a/qemu/include/qemu/crc32c.h b/qemu/include/qemu/crc32c.h
+index 1b537024..2637c6e8 100644
+--- a/qemu/include/qemu/crc32c.h
++++ b/qemu/include/qemu/crc32c.h
+@@ -31,6 +31,6 @@
+ 
+ uint32_t crc32c(uint32_t crc, const uint8_t *data, unsigned int length);
+ 
+-uint32_t crc32(uint32_t crc, const uint8_t *data, unsigned int length);
++uint32_t qemu_crc32(uint32_t crc, const uint8_t *data, unsigned int length);
+ 
+ #endif
+diff --git a/qemu/target/arm/helper-a64.c b/qemu/target/arm/helper-a64.c
+index 8b698824..c2805dd7 100644
+--- a/qemu/target/arm/helper-a64.c
++++ b/qemu/target/arm/helper-a64.c
+@@ -526,7 +526,7 @@ uint64_t HELPER(crc32_64)(uint64_t acc, uint64_t val, uint32_t bytes)
+ 
+     stq_le_p(buf, val);
+ 
+-    return crc32(acc ^ 0xffffffff, buf, bytes) ^ 0xffffffff;
++    return qemu_crc32(acc ^ 0xffffffff, buf, bytes) ^ 0xffffffff;
+ }
+ 
+ uint64_t HELPER(crc32c_64)(uint64_t acc, uint64_t val, uint32_t bytes)
+diff --git a/qemu/target/arm/helper.c b/qemu/target/arm/helper.c
+index 60c9db9e..73f79c23 100644
+--- a/qemu/target/arm/helper.c
++++ b/qemu/target/arm/helper.c
+@@ -11447,7 +11447,7 @@ uint32_t HELPER(crc32)(uint32_t acc, uint32_t val, uint32_t bytes)
+ 
+     stl_le_p(buf, val);
+ 
+-    return crc32(acc ^ 0xffffffff, buf, bytes) ^ 0xffffffff;
++    return qemu_crc32(acc ^ 0xffffffff, buf, bytes) ^ 0xffffffff;
+ }
+ 
+ uint32_t HELPER(crc32c)(uint32_t acc, uint32_t val, uint32_t bytes)
+diff --git a/qemu/target/tricore/op_helper.c b/qemu/target/tricore/op_helper.c
+index 6bb7b3a0..e2c1c5fe 100644
+--- a/qemu/target/tricore/op_helper.c
++++ b/qemu/target/tricore/op_helper.c
+@@ -2290,7 +2290,7 @@ uint32_t helper_crc32(uint32_t arg0, uint32_t arg1)
+     uint8_t buf[4];
+     stl_be_p(buf, arg0);
+ 
+-    return crc32(arg1, buf, 4);
++    return qemu_crc32(arg1, buf, 4);
+ }
+ 
+ /* context save area (CSA) related helpers */
+diff --git a/qemu/util/crc32c.c b/qemu/util/crc32c.c
+index e811d4de..70bd1431 100644
+--- a/qemu/util/crc32c.c
++++ b/qemu/util/crc32c.c
+@@ -187,7 +187,7 @@ static const uint32_t crc32_table[256] = {
+     0xB40BBE37U, 0xC30C8EA1U, 0x5A05DF1BU, 0x2D02EF8DU,
+ };
+ 
+-uint32_t crc32(uint32_t crc, const uint8_t *data, unsigned int length)
++uint32_t qemu_crc32(uint32_t crc, const uint8_t *data, unsigned int length)
+ {
+     int i;
+     crc = ~crc;

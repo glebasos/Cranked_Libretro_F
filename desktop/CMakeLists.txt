@@ -24,4 +24,9 @@ target_include_directories(cranked_desktop PUBLIC
         libs/ImGuiFileDialog/
         ${SDL2_INCLUDE_DIRS}
 )
-target_link_libraries(cranked_desktop cranked cxxopts ${SDL2_LIBRARIES})
+if (TARGET SDL2::SDL2)
+    target_link_libraries(cranked_desktop cranked cxxopts SDL2::SDL2)
+    target_compile_definitions(cranked_desktop PRIVATE SDL_MAIN_HANDLED)
+else ()
+    target_link_libraries(cranked_desktop cranked cxxopts ${SDL2_LIBRARIES})
+endif ()

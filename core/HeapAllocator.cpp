@@ -4,12 +4,20 @@
 using namespace cranked;
 
 HeapAllocator::HeapAllocator(size_t size) : totalSize(size), freeList(nullptr) {
+#ifdef _MSC_VER
+    startPtr = _aligned_malloc(size, 4096);
+#else
     startPtr = aligned_alloc(4096, size);
+#endif
     reset();
 }
 
 HeapAllocator::~HeapAllocator() {
+#ifdef _MSC_VER
+    _aligned_free(startPtr);
+#else
     ::free(startPtr);
+#endif
 }
 
 void *HeapAllocator::allocate(size_t size) {

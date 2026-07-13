@@ -131,10 +131,14 @@ int main(int argc, const char *args[]) {
         settingsHandler.ReadLineFn = [](ImGuiContext *ctx, ImGuiSettingsHandler *handler, void *entry, const char *line) {
             auto userdata = (Userdata *)handler->UserData;
             string lineStr(line);
+            if (lineStr.empty())
+                return; // ImGui hands the handler blank lines (e.g. section separators); ignore rather than crash
             size_t typeSeparatorIndex = lineStr.find('@');
             size_t valueSeparatorIndex = lineStr.find('=');
-            if (typeSeparatorIndex == string::npos or valueSeparatorIndex == string::npos)
-                throw CrankedError("Bad settings item in line: `{}`", line);
+            if (typeSeparatorIndex == string::npos or valueSeparatorIndex == string::npos) {
+                fprintf(stderr, "Ignoring bad settings line: `%s`\n", line);
+                return;
+            }
             auto type = lineStr.substr(0, typeSeparatorIndex);
             auto name = lineStr.substr(typeSeparatorIndex + 1, valueSeparatorIndex - typeSeparatorIndex - 1);
             auto value = lineStr.substr(valueSeparatorIndex + 1);
@@ -148,9 +152,9 @@ int main(int argc, const char *args[]) {
                 else if (type == "Bool")
                     userdata->settings[name] = (bool) stoi(value);
                 else
-                    throw CrankedError("Bad settings item type in line: `{}`", line);
-            } catch (logic_error &ex) {
-                throw CrankedError("Bad settings item value in line: `{}` ({})", line, ex.what());
+                    fprintf(stderr, "Ignoring unknown settings type in line: `%s`\n", line);
+            } catch (logic_error &) {
+                fprintf(stderr, "Ignoring bad settings value in line: `%s`\n", line);
             }
         };
         settingsHandler.ApplyAllFn = [](ImGuiContext *ctx, ImGuiSettingsHandler *handler) {
@@ -587,6 +591,10 @@ int main(int argc, const char *args[]) {
             // Todo: Sleep for the rest of the frame
         } catch (NativeEngine::NativeExecutionError &ex) {
             printf("Uncaught native execution error: %s\n%s", ex.what(), ex.getDump().c_str());
+            exited = true;
+        } catch (exception &ex) {
+            fprintf(stderr, "Uncaught emulator error: %s\n", ex.what());
+            fflush(stderr);
             exited = true;
         }
     }

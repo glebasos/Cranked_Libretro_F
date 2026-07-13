@@ -113,21 +113,116 @@ Audio::Audio(Cranked &cranked) : cranked(cranked), heap(cranked.heap) {}
 
 AudioSample Audio::loadSample(const string &path) {
     auto audio = cranked.rom->getAudio(path);
-    auto sample = heap.construct<AudioSample_32>(cranked, audio.data.size());
-    memcpy(sample->data.data(), audio.data.data(), audio.data.size());
-    sample->soundFormat = audio.soundFormat;
+    // Store decoded 16-bit PCM so playback doesn't need to know the source format
+    auto sample = heap.construct<AudioSample_32>(cranked, (int)(audio.samples.size() * sizeof(int16)));
+    memcpy(sample->data.data(), audio.samples.data(), audio.samples.size() * sizeof(int16));
+    sample->soundFormat = soundFormatIsStereo(audio.soundFormat) ? SoundFormat::Stereo16bit : SoundFormat::Mono16bit;
     sample->sampleRate = audio.sampleRate;
     return sample;
 }
 
+// Shared playback for sample-backed players: mixes into left/right and advances the cursor,
+// handling loop ranges, repeat counts (0 = endless, -1 = ping-pong), and completion
+static void playSampleAudio(AudioPlayerBase &player, AudioSample_32 *sample, int16 *left, int16 *right, int length) {
+    if (!player.playing or player.paused or !sample or sample->data.empty() or sample->sampleRate == 0)
+        return;
+    bool stereo = soundFormatIsStereo(sample->soundFormat);
+    auto pcm = (const int16 *)sample->data.data();
+    int totalFrames = (int)(sample->data.size() / (stereo ? 4 : 2));
+    int start = player.loopStart > 0 ? min(player.loopStart, totalFrames) : 0;
+    int end = player.loopEnd > 0 ? min(player.loopEnd, totalFrames) : totalFrames;
+    if (end <= start) {
+        player.playing = false;
+        return;
+    }
+    double step = (double)player.rate * sample->sampleRate / AUDIO_SAMPLING_RATE;
+    if (step <= 0)
+        return;
+    if (player.samplePosition < start)
+        player.samplePosition = start;
+    for (int i = 0; i < length; i++) {
+        int index = (int)player.samplePosition;
+        if (player.playbackDirection > 0 ? index >= end : index <= start) {
+            if (player.repeat == -1) { // Ping-pong
+                player.playbackDirection = -player.playbackDirection;
+                player.samplePosition = player.playbackDirection > 0 ? start : end - 1;
+                index = (int)player.samplePosition;
+            } else if (player.repeat == 0 or ++player.loops < player.repeat) {
+                player.samplePosition = start;
+                index = start;
+            } else {
+                player.playing = false;
+                player.completionPending = true;
+                break;
+            }
+        }
+        if (stereo) {
+            left[i] += (int16)(pcm[index * 2] * player.leftVolume);
+            right[i] += (int16)(pcm[index * 2 + 1] * player.rightVolume);
+        } else {
+            auto value = pcm[index];
+            left[i] += (int16)(value * player.leftVolume);
+            right[i] += (int16)(value * player.rightVolume);
+        }
+        player.samplePosition += player.playbackDirection > 0 ? step : -step;
+    }
+    player.sampleOffset = (int)player.samplePosition;
+}
+
+void SamplePlayer_32::sampleAudio(int16 *left, int16 *right, int length) {
+    playSampleAudio(*this, sample.get(), left, right, length);
+}
+
+void FilePlayer_32::sampleAudio(int16 *left, int16 *right, int length) {
+    playSampleAudio(*this, bufferedSample.get(), left, right, length);
+}
+
 void Audio::sampleAudio(int16 *samples, int len) {
-    // Todo: TEMP
-    // static int frames;
-    // for (int i = 0; i < len; i++) {
-    //     auto val = (int16)(sin(frames++ / 44100.0 * 2 * numbers::pi * 500) * 4000);
-    //     samples[i * 2] = val;
-    //     samples[i * 2 + 1] = val;
-    // }
+    memset(samples, 0, len * 2 * sizeof(int16));
+    vector<int32> accumulatorLeft(len), accumulatorRight(len);
+    vector<int16> sourceLeft(len), sourceRight(len);
+    vector<SoundSource> finished;
+
+    auto processChannel = [&](SoundChannel_32 *channel) {
+        if (!channel)
+            return;
+        float volume = channel->volume;
+        float pan = channel->pan;
+        float leftGain = volume * min(1.0f, 2.0f * (1.0f - pan));
+        float rightGain = volume * min(1.0f, 2.0f * pan);
+        for (auto &sourceRef : channel->sources) {
+            SoundSource source = sourceRef.get();
+            if (!source or !source->playing)
+                continue;
+            ranges::fill(sourceLeft, 0);
+            ranges::fill(sourceRight, 0);
+            source->sampleAudio(sourceLeft.data(), sourceRight.data(), len);
+            for (int i = 0; i < len; i++) {
+                accumulatorLeft[i] += (int32)((float)sourceLeft[i] * leftGain);
+                accumulatorRight[i] += (int32)((float)sourceRight[i] * rightGain);
+            }
+            if (source->completionPending)
+                finished.emplace_back(source);
+        }
+    };
+
+    processChannel(mainChannel);
+    for (auto &channel : channels)
+        processChannel(channel.get());
+
+    for (int i = 0; i < len; i++) {
+        samples[i * 2] = (int16)max(min(accumulatorLeft[i], 32767), -32768);
+        samples[i * 2 + 1] = (int16)max(min(accumulatorRight[i], 32767), -32768);
+    }
+
+    sampleTime += len;
+
+    for (SoundSource source : finished) {
+        source->completionPending = false;
+        if (source->completionCallback and cranked.nativeEngine.isLoaded())
+            cranked.nativeEngine.invokeEmulatedFunction<void, ArgType::void_t, ArgType::ptr_t, ArgType::uint32_t>(
+                    source->completionCallback, source, source->completionCallbackUserdata);
+    }
 }
 
 void Audio::reset() {

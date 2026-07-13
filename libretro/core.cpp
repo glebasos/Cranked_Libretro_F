@@ -297,8 +297,61 @@ static void updateInputs() {
     prev_l3 = l3;
 }
 
+#ifdef _WIN32
+#include <windows.h>
+#include <dbghelp.h>
+
+// Diagnostic aid: print a symbolized stack trace on access violations, since
+// crashes inside the frontend process otherwise vanish without a trace
+static LONG WINAPI crankedCrashHandler(PEXCEPTION_POINTERS info) {
+    if (info->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
+        return EXCEPTION_CONTINUE_SEARCH;
+    static bool reported = false;
+    if (reported)
+        return EXCEPTION_CONTINUE_SEARCH;
+    reported = true;
+    fprintf(stderr, "CRANKED ACCESS VIOLATION at %p accessing %p\n",
+            info->ExceptionRecord->ExceptionAddress, (void *)info->ExceptionRecord->ExceptionInformation[1]);
+    HANDLE proc = GetCurrentProcess();
+    SymSetOptions(SYMOPT_UNDNAME | SYMOPT_DEFERRED_LOADS | SYMOPT_LOAD_LINES);
+    SymInitialize(proc, nullptr, TRUE);
+    CONTEXT ctx = *info->ContextRecord;
+    STACKFRAME64 frame{};
+    frame.AddrPC.Offset = ctx.Rip; frame.AddrPC.Mode = AddrModeFlat;
+    frame.AddrFrame.Offset = ctx.Rbp; frame.AddrFrame.Mode = AddrModeFlat;
+    frame.AddrStack.Offset = ctx.Rsp; frame.AddrStack.Mode = AddrModeFlat;
+    for (int i = 0; i < 32; i++) {
+        if (!StackWalk64(IMAGE_FILE_MACHINE_AMD64, proc, GetCurrentThread(), &frame, &ctx,
+                         nullptr, SymFunctionTableAccess64, SymGetModuleBase64, nullptr))
+            break;
+        DWORD64 pc = frame.AddrPC.Offset;
+        if (!pc)
+            break;
+        char buf[sizeof(SYMBOL_INFO) + 256]{};
+        auto sym = (SYMBOL_INFO *)buf;
+        sym->SizeOfStruct = sizeof(SYMBOL_INFO);
+        sym->MaxNameLen = 255;
+        DWORD64 disp{};
+        IMAGEHLP_LINE64 line{sizeof(IMAGEHLP_LINE64)};
+        DWORD lineDisp{};
+        if (SymFromAddr(proc, pc, &disp, sym)) {
+            if (SymGetLineFromAddr64(proc, pc, &lineDisp, &line))
+                fprintf(stderr, "  #%02d %s+0x%llx (%s:%lu)\n", i, sym->Name, disp, line.FileName, line.LineNumber);
+            else
+                fprintf(stderr, "  #%02d %s+0x%llx\n", i, sym->Name, disp);
+        } else
+            fprintf(stderr, "  #%02d %p\n", i, (void *)pc);
+    }
+    fflush(stderr);
+    return EXCEPTION_CONTINUE_SEARCH;
+}
+#endif
+
 void retro_init() {
     fprintf(stderr, "Cranked core: retro_init() called\n");
+#ifdef _WIN32
+    AddVectoredExceptionHandler(1, crankedCrashHandler);
+#endif
     instance = new Cranked;
     instance->config.updateCallback = emulatorCallback;
     instance->graphics.displayBufferNativeEndian = true;
@@ -363,8 +416,11 @@ void retro_run() {
     // displayBufferRGBA is now a 1D array to ensure no padding/stride issues
     video_cb(instance->graphics.displayBufferRGBA, DISPLAY_WIDTH, DISPLAY_HEIGHT, DISPLAY_WIDTH * sizeof(uint32));
 
-    // Audio placeholder - not implemented yet
-    audio_cb(0, 0);
+    // Pump the audio mixer: 44100 Hz / 60 fps = 735 frames per video frame
+    constexpr int AUDIO_FRAMES = 735;
+    static int16_t audioBuffer[AUDIO_FRAMES * 2];
+    instance->audio.sampleAudio(audioBuffer, AUDIO_FRAMES);
+    audio_batch_cb(audioBuffer, AUDIO_FRAMES);
 }
 
 bool retro_load_game(const retro_game_info *info) {
@@ -572,7 +628,7 @@ void retro_get_system_info(struct retro_system_info *info) {
 
 void retro_get_system_av_info(struct retro_system_av_info *info) {
     fprintf(stderr, "Cranked core: retro_get_system_av_info() called\n");
-    info->timing = {.fps = 60.0, .sample_rate = 0.0};
+    info->timing = {.fps = 60.0, .sample_rate = 44100.0};
 
     info->geometry = {
             .base_width = DISPLAY_WIDTH,

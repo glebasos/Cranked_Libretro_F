@@ -4,7 +4,13 @@
 using namespace cranked;
 
 Graphics::Graphics(Cranked &cranked)
-        : cranked(cranked), heap(cranked.heap), systemFontSources(Rom::readSystemFont("Asheville-Sans-14-Light.pft"), Rom::readSystemFont("Asheville-Sans-14-Bold.pft"), Rom::readSystemFont("Asheville-Sans-14-Light-Oblique.pft")) {}
+        : cranked(cranked), heap(cranked.heap) {
+    // Assign in the body rather than the mem-initializer list: MSVC silently ignores
+    // C++20 parenthesized aggregate initialization of array members (never evaluates the calls)
+    systemFontSources[0] = Rom::readSystemFont("Asheville-Sans-14-Light.pft");
+    systemFontSources[1] = Rom::readSystemFont("Asheville-Sans-14-Bold.pft");
+    systemFontSources[2] = Rom::readSystemFont("Asheville-Sans-14-Light-Oblique.pft");
+}
 
 GrayscaleImage::GrayscaleImage(Bitmap bitmap, float alpha) : GrayscaleImage(bitmap->width, bitmap->height) {
     for (int y = 0; y < bitmap->height; y++) {
@@ -857,7 +863,7 @@ vector<GlyphInstance> Graphics::layoutText(int x, int y, string_view text, const
                 glyphs.emplace_back(glyph, position + IntVec2{ adjust, 0 }, character);
         }
         currentX = x;
-        currentY += currentFont->leading + ctx.textLeading + leadingAdjust;
+        currentY += (currentFont ? currentFont->leading : 0) + ctx.textLeading + leadingAdjust;
         line.clear();
     };
 

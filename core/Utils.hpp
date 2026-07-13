@@ -3,9 +3,7 @@
 #include "Constants.hpp"
 #include "ffi.h"
 #include "nlohmann/json.hpp"
-#include "boost/asio.hpp"
-#include "dynarmic/interface/A32/a32.h"
-#include "dynarmic/interface/A32/config.h"
+#include "asio.hpp"
 #include "unicorn/unicorn.h"
 #include "cpp-unicodelib/unicodelib.h"
 #include "cpp-unicodelib/unicodelib_encodings.h"
@@ -79,7 +77,10 @@ namespace cranked {
     using std::char_traits, std::numeric_limits;
     using std::size_t, std::time_t;
     using std::ostringstream, std::istringstream, std::ifstream, std::ofstream, std::getline, std::ios;
-    using std::free, std::bad_alloc, std::aligned_alloc, std::addressof;
+    using std::free, std::bad_alloc, std::addressof;
+#ifndef _MSC_VER
+    using std::aligned_alloc;
+#endif
     using std::sort, std::find, std::find_if, std::erase, std::remove, std::swap, std::mismatch;
     using std::unique_ptr, std::shared_ptr, std::make_shared, std::make_unique;
     using std::format, std::vformat, std::make_format_args;
@@ -101,6 +102,7 @@ namespace cranked {
     typedef uint8_t uint8;
     typedef char16_t char16;
     typedef char32_t char32;
+    typedef unsigned int uint;
 
     enum class LogLevel {
         Verbose,
@@ -323,7 +325,7 @@ namespace cranked {
         T t{};
         uint8 byte{};
         for (int i = 0; i < (int)sizeof(T); i++) {
-            auto result = from_chars(string.begin() + i * 2, string.begin() + i * 2 + 2, byte, 16);
+            auto result = from_chars(string.data() + i * 2, string.data() + i * 2 + 2, byte, 16);
             if (result.ec != errc{})
                 throw CrankedError("Invalid hex byte");
             t |= byte << i * 8;
