@@ -24,6 +24,35 @@ setmetatable(cranked.resources, { __mode = "v" })
 
 playdate.argv = {}
 
+-- On-device Playdate objects (images, sprites, sound players, geometry, ...) are full
+-- userdata, but this emulator represents them as tables wrapping a light-userdata
+-- `userdata` field. Games branch on type(obj) == "userdata"/"table" (e.g. smolitaire
+-- recursively descends "table" values to set volumes and crashed indexing the raw
+-- userdata field), so report "userdata" for tables whose metatable is one of the
+-- playdate.* API tables. Class instances (CoreLibs object.lua) keep their class table
+-- as metatable with no own __name, so they still report "table" as on device.
+do
+    local rawtype = type
+    local verdictByMetatable = setmetatable({}, { __mode = "k" })
+    function type(value)
+        if rawtype(value) == "table" then
+            local mt = getmetatable(value)
+            if mt ~= nil and rawtype(mt) == "table" then
+                local verdict = verdictByMetatable[mt]
+                if verdict == nil then
+                    local name = rawget(mt, "__name")
+                    verdict = rawtype(name) == "string" and name:sub(1, 9) == "playdate."
+                    verdictByMetatable[mt] = verdict
+                end
+                if verdict then
+                    return "userdata"
+                end
+            end
+        end
+        return rawtype(value)
+    end
+end
+
 function cranked.dispatchInputEvent(name, change, acceleratedChange)
     local handlers
     handlers = cranked.inputHandlers
@@ -272,7 +301,7 @@ function playdate.geometry.rect:offset(dx, dy)
 end
 
 function playdate.geometry.rect:offsetBy(dx, dy)
-    return geometry.rect.new(self.x + dx, self.y + dy)
+    return geometry.rect.new(self.x + dx, self.y + dy, self.width, self.height)
 end
 
 function playdate.geometry.rect:containsRect(r2)
