@@ -291,7 +291,9 @@ void LCDBitmap_32::drawPixel(int x, int y, const Color &color) {
         pattern = get<PatternColor>(color).pattern.data();
     } else if (holds_alternative<DitherColor>(color)) {
         auto &dither = get<DitherColor>(color);
-        float alpha = dither.white ? 1 - dither.alpha : dither.alpha;
+        // Device inverts alpha for black patterns too: 1.0 is transparent, 0 is opaque
+        // (verified against RootBear on hardware: beer body at 0.25 renders ~75% black)
+        float alpha = 1 - dither.alpha;
         if (alpha > ditherThreshold(dither.type, x, y))
             c = dither.white ? LCDSolidColor::White : LCDSolidColor::Black;
         else

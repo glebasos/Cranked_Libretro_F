@@ -262,7 +262,8 @@ namespace cranked {
 
         [[nodiscard]] int getIntElement(int n) const {
             lua_geti(context, index, n);
-            auto value = lua_tointeger(context, -1);
+            // Not lua_tointeger: that returns 0 for floats with fractional parts
+            auto value = (int)lua_tonumber(context, -1);
             lua_pop(context, 1);
             return value;
         }
@@ -335,7 +336,8 @@ namespace cranked {
 
         [[nodiscard]] int getIntField(const char *name) const {
             lua_getfield(context, index, name);
-            auto value = lua_tointeger(context, -1);
+            // Not lua_tointeger: that returns 0 for floats with fractional parts
+            auto value = (int)lua_tonumber(context, -1);
             lua_pop(context, 1);
             return value;
         }

@@ -66,6 +66,21 @@ static LuaRet playdate_getCrankChange_lua(Cranked *cranked) {
     return 2;
 }
 
+// The raw C API predicates return int32, which the Lua wrapper pushes as an integer;
+// integer 0 is truthy in Lua, so they must be wrapped to return real booleans
+static bool playdate_isCrankDocked_lua(Cranked *cranked) { return playdate_sys_isCrankDocked(cranked); }
+static bool playdate_getFlipped_lua(Cranked *cranked) { return playdate_sys_getFlipped(cranked); }
+static bool playdate_getReduceFlashing_lua(Cranked *cranked) { return playdate_sys_getReduceFlashing(cranked); }
+static bool playdate_shouldDisplay24HourTime_lua(Cranked *cranked) { return playdate_sys_shouldDisplay24HourTime(cranked); }
+static bool playdate_sprite_isVisible_lua(Cranked *cranked, LCDSprite_32 *sprite) { return playdate_sprite_isVisible(cranked, sprite); }
+static bool playdate_sprite_updatesEnabled_lua(Cranked *cranked, LCDSprite_32 *sprite) { return playdate_sprite_updatesEnabled(cranked, sprite); }
+static bool playdate_sprite_collisionsEnabled_lua(Cranked *cranked, LCDSprite_32 *sprite) { return playdate_sprite_collisionsEnabled(cranked, sprite); }
+static bool playdate_sound_sampleplayer_isPlaying_lua(Cranked *cranked, SamplePlayer_32 *player) { return playdate_sound_sampleplayer_isPlaying(cranked, player); }
+static bool playdate_sound_fileplayer_isPlaying_lua(Cranked *cranked, FilePlayer_32 *player) { return playdate_sound_fileplayer_isPlaying(cranked, player); }
+static bool playdate_sound_fileplayer_didUnderrun_lua(Cranked *cranked, FilePlayer_32 *player) { return playdate_sound_fileplayer_didUnderrun(cranked, player); }
+static bool playdate_sound_synth_isPlaying_lua(Cranked *cranked, PDSynth_32 *synth) { return playdate_sound_synth_isPlaying(cranked, synth); }
+static bool playdate_sound_sequence_isPlaying_lua(Cranked *cranked, SoundSequence_32 *seq) { return playdate_sound_sequence_isPlaying(cranked, seq); }
+
 static int playdate_getCrankTicks(Cranked *cranked, int ticksPerRevolution) {
     float change = cranked->getCrankChange();
     return (int)(change / (float)ticksPerRevolution);
@@ -712,8 +727,8 @@ static void playdate_graphics_setPattern_lua(Cranked *cranked, LuaVal pattern, i
 
 static void playdate_graphics_setDitherPattern_lua(Cranked *cranked, float alpha, DitherType ditherType) {
     auto &ctx = cranked->graphics.getContext();
-    // Device behavior: with a white drawing color the pattern is white-on-transparent
-    // with inverted alpha; otherwise black-on-transparent with normal alpha
+    // Device behavior: white drawing color gives white-on-transparent, otherwise
+    // black-on-transparent; alpha is inverted in both cases (1.0 = transparent)
     bool white = holds_alternative<LCDColor>(ctx.color) and get<LCDColor>(ctx.color).color == LCDSolidColor::White;
     ctx.color = DitherColor{ ditherType, alpha, white };
 }
@@ -808,7 +823,7 @@ static vector<int32> getPolygonPoints(Cranked *cranked, LuaVal arg) {
     } else {
         int top = lua_gettop(context);
         for (int i = arg; i <= top; i++)
-            points.emplace_back(lua_tointeger(context, i));
+            points.emplace_back((int32)lua_tonumber(context, i)); // Not lua_tointeger: returns 0 for fractional floats
     }
     return points;
 }
@@ -1397,8 +1412,20 @@ static LuaValRet playdate_graphics_tilemap_getCollisionRects_lua(Cranked *cranke
     return table;
 }
 
-static void playdate_graphics_setFont_lua(Cranked *cranked, Font font, PDFontVariant variant) {
-    cranked->graphics.getContext().setFont(variant, font);
+static void playdate_graphics_setFont_lua(Cranked *cranked, LuaVal fontArg, PDFontVariant variant) {
+    // Device also accepts a font path string here (undocumented; RootBear relies on it)
+    Font font{};
+    if (fontArg.isString()) {
+        try {
+            font = cranked->graphics.getFont(fontArg.asString());
+        } catch (exception &ex) {
+            cranked->logMessage(LogLevel::Warning, "setFont('%s') failed: %s", fontArg.asString(), ex.what());
+            return;
+        }
+    } else
+        font = fontArg.asUserdataObject<Font>();
+    if (font)
+        cranked->graphics.getContext().setFont(variant, font);
 }
 
 static LuaValRet playdate_graphics_getFont_lua(Cranked *cranked, PDFontVariant variant) {
@@ -2917,14 +2944,14 @@ void LuaEngine::registerLuaGlobals() {
         playdate.setWrappedFunction<playdate_start_lua>("start");
         playdate.setWrappedFunction<playdate_restart_lua>("restart");
         playdate.setWrappedFunction<playdate_getSystemLanguage_lua>("getSystemLanguage");
-        playdate.setWrappedFunction<playdate_sys_getReduceFlashing>("getReduceFlashing");
-        playdate.setWrappedFunction<playdate_sys_getFlipped>("getFlipped");
+        playdate.setWrappedFunction<playdate_getReduceFlashing_lua>("getReduceFlashing");
+        playdate.setWrappedFunction<playdate_getFlipped_lua>("getFlipped");
         playdate.setWrappedFunction<playdate_buttonIsPressed_lua>("buttonIsPressed");
         playdate.setWrappedFunction<playdate_buttonJustPressed_lua>("buttonJustPressed");
         playdate.setWrappedFunction<playdate_buttonJustReleased_lua>("buttonJustReleased");
         playdate.setWrappedFunction<playdate_getButtonState_lua>("getButtonState");
         playdate.setWrappedFunction<playdate_setButtonQueueSize>("setButtonQueueSize");
-        playdate.setWrappedFunction<playdate_sys_isCrankDocked>("isCrankDocked");
+        playdate.setWrappedFunction<playdate_isCrankDocked_lua>("isCrankDocked");
         playdate.setWrappedFunction<playdate_sys_getCrankAngle>("getCrankPosition");
         playdate.setWrappedFunction<playdate_getCrankChange_lua>("getCrankChange");
         playdate.setWrappedFunction<playdate_getCrankTicks>("getCrankTicks");
@@ -2942,7 +2969,7 @@ void LuaEngine::registerLuaGlobals() {
         playdate.setWrappedFunction<playdate_epochFromGMTTime_lua>("epochFromGMTTime");
         playdate.setWrappedFunction<playdate_timeFromEpoch_lua>("timeFromEpoch");
         playdate.setWrappedFunction<playdate_GMTTimeFromEpoch_lua>("GMTTimeFromEpoch");
-        playdate.setWrappedFunction<playdate_sys_shouldDisplay24HourTime>("shouldDisplay24HourTime");
+        playdate.setWrappedFunction<playdate_shouldDisplay24HourTime_lua>("shouldDisplay24HourTime");
         playdate.setWrappedFunction<playdate_sys_drawFPS>("drawFPS");
         playdate.setWrappedFunction<playdate_getFPS_lua>("getFPS");
         playdate.setWrappedFunction<playdate_getStats_lua>("getStats");
@@ -3329,7 +3356,7 @@ void LuaEngine::registerLuaGlobals() {
                 sprite.setWrappedFunction<playdate_sprite_setZIndex>("setZIndex");
                 sprite.setWrappedFunction<playdate_sprite_getZIndex>("getZIndex");
                 sprite.setWrappedFunction<playdate_sprite_setVisible>("setVisible");
-                sprite.setWrappedFunction<playdate_sprite_isVisible>("isVisible");
+                sprite.setWrappedFunction<playdate_sprite_isVisible_lua>("isVisible");
                 sprite.setWrappedFunction<playdate_graphics_sprite_setCenter_lua>("setCenter");
                 sprite.setWrappedFunction<playdate_graphics_sprite_getCenter_lua>("getCenter");
                 sprite.setWrappedFunction<playdate_graphics_sprite_getCenterPoint_lua>("getCenterPoint");
@@ -3341,7 +3368,7 @@ void LuaEngine::registerLuaGlobals() {
                 sprite.setWrappedFunction<playdate_graphics_sprite_getRotation_lua>("getRotation");
                 sprite.setWrappedFunction<playdate_graphics_sprite_copy_lua>("copy");
                 sprite.setWrappedFunction<playdate_sprite_setUpdatesEnabled>("setUpdatesEnabled");
-                sprite.setWrappedFunction<playdate_sprite_updatesEnabled>("updatesEnabled");
+                sprite.setWrappedFunction<playdate_sprite_updatesEnabled_lua>("updatesEnabled");
                 sprite.setWrappedFunction<playdate_sprite_setTag>("setTag");
                 sprite.setWrappedFunction<playdate_sprite_getTag>("getTag");
                 sprite.setWrappedFunction<playdate_sprite_setDrawMode>("setImageDrawMode");
@@ -3378,7 +3405,7 @@ void LuaEngine::registerLuaGlobals() {
                 sprite.setWrappedFunction<playdate_graphics_sprite_allOverlappingSprites_lua>("allOverlappingSprites");
                 sprite.setWrappedFunction<playdate_graphics_sprite_alphaCollision_lua>("alphaCollision");
                 sprite.setWrappedFunction<playdate_sprite_setCollisionsEnabled>("setCollisionsEnabled");
-                sprite.setWrappedFunction<playdate_sprite_collisionsEnabled>("collisionsEnabled");
+                sprite.setWrappedFunction<playdate_sprite_collisionsEnabled_lua>("collisionsEnabled");
                 sprite.setWrappedFunction<playdate_graphics_sprite_setGroups_lua>("setGroups");
                 sprite.setWrappedFunction<playdate_graphics_sprite_setCollidesWithGroups_lua>("setCollidesWithGroups");
                 sprite.setWrappedFunction<playdate_graphics_sprite_setGroupMask_lua>("setGroupMask");
@@ -3508,7 +3535,7 @@ void LuaEngine::registerLuaGlobals() {
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_setLoopCallback_lua>("setLoopCallback");
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_setPlayRange>("setPlayRange");
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_setPaused>("setPaused");
-                samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_isPlaying>("isPlaying");
+                samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_isPlaying_lua>("isPlaying");
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_stop>("stop");
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_setFinishCallback_lua>("setFinishCallback");
                 samplePlayer.setWrappedFunction<playdate_sound_sampleplayer_setSample>("setSample");
@@ -3531,10 +3558,10 @@ void LuaEngine::registerLuaGlobals() {
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_play_lua>("play");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_stop>("stop");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_pause>("pause");
-                filePlayer.setWrappedFunction<playdate_sound_fileplayer_isPlaying>("isPlaying");
+                filePlayer.setWrappedFunction<playdate_sound_fileplayer_isPlaying_lua>("isPlaying");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_getLength>("getLength");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_setFinishCallback_lua>("setFinishCallback");
-                filePlayer.setWrappedFunction<playdate_sound_fileplayer_didUnderrun>("didUnderrun");
+                filePlayer.setWrappedFunction<playdate_sound_fileplayer_didUnderrun_lua>("didUnderrun");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_setStopOnUnderrun>("setStopOnUnderrun");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_setLoopRange_lua>("setLoopRange");
                 filePlayer.setWrappedFunction<playdate_sound_fileplayer_setLoopCallback_lua>("setLoopCallback");
@@ -3596,7 +3623,7 @@ void LuaEngine::registerLuaGlobals() {
                 synth.setWrappedFunction<playdate_sound_synth_playMIDINote_lua>("playMIDINote");
                 synth.setWrappedFunction<playdate_sound_synth_noteOff>("noteOff");
                 synth.setWrappedFunction<playdate_sound_synth_stop>("stop");
-                synth.setWrappedFunction<playdate_sound_synth_isPlaying>("isPlaying");
+                synth.setWrappedFunction<playdate_sound_synth_isPlaying_lua>("isPlaying");
                 synth.setWrappedFunction<playdate_sound_synth_setAmplitudeModulator>("setAmplitudeMod");
                 synth.setWrappedFunction<playdate_sound_synth_setADSR_lua>("setADSR");
                 synth.setWrappedFunction<playdate_sound_synth_setAttackTime>("setAttack");
@@ -3770,7 +3797,7 @@ void LuaEngine::registerLuaGlobals() {
                 sequence.setWrappedFunction<playdate_sound_sequence_new_lua>("new");
                 sequence.setWrappedFunction<playdate_sound_sequence_play_lua>("play");
                 sequence.setWrappedFunction<playdate_sound_sequence_stop>("stop");
-                sequence.setWrappedFunction<playdate_sound_sequence_isPlaying>("isPlaying");
+                sequence.setWrappedFunction<playdate_sound_sequence_isPlaying_lua>("isPlaying");
                 sequence.setWrappedFunction<playdate_sound_sequence_getLength>("getLength");
                 sequence.setWrappedFunction<playdate_sound_sequence_goToStep_lua>("goToStep");
                 sequence.setWrappedFunction<playdate_sound_sequence_getCurrentStep_lua>("getCurrentStep");

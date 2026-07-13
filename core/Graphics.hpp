@@ -27,9 +27,9 @@ namespace cranked {
 
     struct DitherColor {
         DitherType type;
-        float alpha;
+        float alpha; // Inverted on device for both colors: 1.0 transparent, 0 opaque
         // Set when the drawing color was white when the pattern was set: white pixels
-        // on transparent, with alpha inverted (SDK-documented device behavior)
+        // on transparent instead of black pixels on transparent
         bool white;
     };
 
