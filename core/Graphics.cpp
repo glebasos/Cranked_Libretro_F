@@ -246,6 +246,36 @@ void LCDBitmap_32::setBufferPixel(int x, int y, bool color) {
     word |= color << offset;
 }
 
+// Per-pixel threshold for the ordered dither types; error-diffusing types don't
+// map to a fixed pattern (SDK docs call their results here "very unpredictable"),
+// so they fall back to Bayer8x8
+static float ditherThreshold(DitherType type, int x, int y) {
+    switch (type) {
+        case DitherType::DiagonalLine:
+            return (float)((x + y) % 4) / 4.0f;
+        case DitherType::VerticalLine:
+            return (float)(x % 4) / 4.0f;
+        case DitherType::HorizontalLine:
+            return (float)(y % 4) / 4.0f;
+        case DitherType::Screen:
+            return (float)(x % 2 + y % 2) / 4.0f;
+        // Explicit matrices: BayerTable's bit-twiddling formula only produces valid
+        // thresholds for N=8 (smaller sizes yield values greater than 1)
+        case DitherType::Bayer2x2: {
+            constexpr int matrix[4]{ 0, 2, 3, 1 };
+            return (float)matrix[y % 2 * 2 + x % 2] / 4.0f;
+        }
+        case DitherType::Bayer4x4: {
+            constexpr int matrix[16]{ 0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5 };
+            return (float)matrix[y % 4 * 4 + x % 4] / 16.0f;
+        }
+        default: {
+            constexpr BayerTable<8> table{};
+            return table.get(x, y);
+        }
+    }
+}
+
 void LCDBitmap_32::drawPixel(int x, int y, const Color &color) {
     if (x < 0 or x >= width or y < 0 or y >= height)
         return;
@@ -260,7 +290,12 @@ void LCDBitmap_32::drawPixel(int x, int y, const Color &color) {
     } else if (holds_alternative<PatternColor>(color)) {
         pattern = get<PatternColor>(color).pattern.data();
     } else if (holds_alternative<DitherColor>(color)) {
-        // Todo
+        auto &dither = get<DitherColor>(color);
+        float alpha = dither.white ? 1 - dither.alpha : dither.alpha;
+        if (alpha > ditherThreshold(dither.type, x, y))
+            c = dither.white ? LCDSolidColor::White : LCDSolidColor::Black;
+        else
+            c = LCDSolidColor::Clear;
     }
     if (pattern) {
         auto row = y % 8;

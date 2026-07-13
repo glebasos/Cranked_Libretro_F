@@ -28,6 +28,9 @@ namespace cranked {
     struct DitherColor {
         DitherType type;
         float alpha;
+        // Set when the drawing color was white when the pattern was set: white pixels
+        // on transparent, with alpha inverted (SDK-documented device behavior)
+        bool white;
     };
 
     using Color = variant<LCDColor, PatternColor, DitherColor>;

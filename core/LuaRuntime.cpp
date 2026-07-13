@@ -712,7 +712,10 @@ static void playdate_graphics_setPattern_lua(Cranked *cranked, LuaVal pattern, i
 
 static void playdate_graphics_setDitherPattern_lua(Cranked *cranked, float alpha, DitherType ditherType) {
     auto &ctx = cranked->graphics.getContext();
-    ctx.color = DitherColor{ ditherType, alpha };
+    // Device behavior: with a white drawing color the pattern is white-on-transparent
+    // with inverted alpha; otherwise black-on-transparent with normal alpha
+    bool white = holds_alternative<LCDColor>(ctx.color) and get<LCDColor>(ctx.color).color == LCDSolidColor::White;
+    ctx.color = DitherColor{ ditherType, alpha, white };
 }
 
 static void playdate_graphics_drawLine_lua(Cranked *cranked, LuaVal x1, int y1, int x2, int y2, int lineWidth) {
