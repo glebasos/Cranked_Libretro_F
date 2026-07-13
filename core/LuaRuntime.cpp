@@ -12,12 +12,14 @@ static LuaRet import_lua(Cranked *cranked, const char *name) {
         return 0;
     for (auto &file: cranked->rom->pdzFiles)
         if (file.type == Rom::FileType::LUAC and file.name == name) { // Name gets extension removed at compile time
+            // Mark as loaded before executing: import is include-once on-device, so circular imports must be no-ops rather than infinite recursion
+            cranked->luaEngine.loadedLuaFiles.emplace(name);
             luaL_loadbuffer(cranked->getLuaContext(), (char *) file.data.data(), file.data.size(), file.name.c_str());
             if (lua_pcall(cranked->getLuaContext(), 0, 0, 0) != LUA_OK) {
+                cranked->luaEngine.loadedLuaFiles.erase(name);
                 luaL_error(cranked->getLuaContext(), "Failed to load module `%s`: %s", name, lua_tostring(cranked->getLuaContext(), -1));
                 return 1;
             }
-            cranked->luaEngine.loadedLuaFiles.emplace(name);
             return 0;
         }
     if (cranked->rom->findRomFile(name)) // Ignore imports for resource files

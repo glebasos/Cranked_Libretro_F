@@ -295,6 +295,21 @@ static void updateInputs() {
         fprintf(stderr, "Crank: toggled dock state, docked=%d\n", instance->crankDocked);
     }
     prev_l3 = l3;
+
+    // Headless test hook (env CRANKED_AUTOTEST=1): press A around frame 120, then spin the crank.
+    // Synthetic OS keypresses don't reach RetroArch, so scripted input is the only way to
+    // exercise input callbacks in automated runs.
+    static bool autotest = []{ const char *v = getenv("CRANKED_AUTOTEST"); return v && *v && *v != '0'; }();
+    if (autotest) {
+        static int autotestFrame = 0;
+        autotestFrame++;
+        if (autotestFrame >= 120 && autotestFrame < 130)
+            instance->currentInputs |= (int)PDButtons::A;
+        if (autotestFrame >= 240) {
+            instance->crankAngle = fmodf(instance->crankAngle + 5.0f, 360.0f);
+            instance->crankDocked = false;
+        }
+    }
 }
 
 #ifdef _WIN32

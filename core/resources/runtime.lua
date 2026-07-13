@@ -862,6 +862,12 @@ function playdate.geometry.affineTransform:transformedAABB(r)
     return geometry.rect.new(x, y, r.width, r.height)
 end
 
+function playdate.geometry.affineTransform:transformPolygon(p)
+    for i = 1, p.numberOfVertices do
+        self:transformPoint(p[i])
+    end
+end
+
 function playdate.geometry.affineTransform:transformedPolygon(p)
     local transformed = geometry.polygon.new(0)
     transformed.numberOfVertices = p.numberOfVertices

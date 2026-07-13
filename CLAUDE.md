@@ -36,6 +36,7 @@ Gotchas learned the hard way:
 - **RetroArch pauses when unfocused** — headless runs freeze after one frame unless `pause_nonactive = "false"` is set (use `--appendconfig`).
 - `log_cb` output needs `--verbose --log-file`; core `fprintf(stderr, …)` always reaches the console.
 - Keyboard in RetroArch: **X = Playdate B, Z = Playdate A** (RetroPad B→PD A, A→PD B in `libretro/core.cpp updateInputs`).
+- Synthetic OS keypresses don't reach RetroArch, so input callbacks can't be exercised interactively in automated runs. Instead set `CRANKED_AUTOTEST=1`: the core presses A around frame 120 and spins the crank from frame 240 (see `updateInputs`).
 
 Debugging toolkit already wired in:
 - `libretro/core.cpp` installs a vectored exception handler printing dbghelp-symbolized stack traces on access violations (works because builds are RelWithDebInfo).
@@ -60,6 +61,8 @@ Debugging toolkit already wired in:
 - `.pda` header: uint24 sample rate at offset 12, uint8 format at 15. ADPCM blocks start after a uint16 blockSize word; the per-block predictor is signed int16; step must be seeded from the header's stepIndex.
 - Playback repeat semantics: 0 = loop forever, -1 = ping-pong, N = play N times. **Lua `play()` with no args means 1** — a nil→0 coercion loops forever, and games that poll `isPlaying()` then hang (this froze whole games on intro screens).
 - Lua `playdate.file.*` APIs tolerate nil paths (device behavior); throwing kills the game's top-level script.
+- `import` is include-once: a module must be registered as loaded **before** its body executes, so circular imports are no-ops (as on device) instead of infinite recursion.
+- Lua callbacks (`invokeLuaCallback`/`invokeLuaInputCallback`) must use `lua_pcall`, never `lua_call` — an error in a game's input handler otherwise reaches the Lua panic handler and aborts the process.
 - MSVC silently ignores C++20 parenthesized aggregate initialization of array members in ctor init lists — it compiles and never evaluates the initializers (this shipped empty system fonts with zero errors). Grep `\[[0-9]\]{};` in headers and check those members' ctors if a subsystem is mysteriously default-initialized on Windows only.
 - MSVC portability already handled in-tree: no `std::aligned_alloc`/`vasprintf`/`SIGTRAP`/`uint`; `fs::path` is wide — use `.string()`/`.generic_string()` (Playdate paths want forward slashes); `/Zc:__cplusplus /utf-8 /bigobj` are required globally; `FFI_BUILDING` must be defined for libffi consumers; standalone asio (`ASIO_STANDALONE`) replaces boost::asio (real headers at `asio_standalone/include`, not `asio/include` which is a symlink-as-file on Windows).
 

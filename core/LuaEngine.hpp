@@ -795,8 +795,11 @@ namespace cranked {
             auto start = lua_gettop(getContext());
             lua_getglobal(getContext(), "playdate");
             lua_getfield(getContext(), -1, name.c_str());
-            if (!lua_isnil(getContext(), -1))
-                lua_call(getContext(), 0, 0); // Todo: Protected?
+            if (!lua_isnil(getContext(), -1)) {
+                // Protected: an unhandled error here would hit the Lua panic handler and abort the process
+                if (lua_pcall(getContext(), 0, 0, 0) != LUA_OK)
+                    fprintf(stderr, "Lua error in playdate.%s callback: %s\n", name.c_str(), lua_tostring(getContext(), -1));
+            }
             lua_settop(getContext(), start);
         }
 
@@ -809,8 +812,12 @@ namespace cranked {
             lua_pushstring(getContext(), name.c_str());
             for (float arg: args)
                 lua_pushnumber(getContext(), arg);
-            lua_call(getContext(), args.size() + 1, 1); // Todo: Protected?
-            bool handled = lua_toboolean(getContext(), -1);
+            bool handled = false;
+            // Protected: an unhandled error here would hit the Lua panic handler and abort the process
+            if (lua_pcall(getContext(), args.size() + 1, 1, 0) != LUA_OK)
+                fprintf(stderr, "Lua error in %s input callback: %s\n", name.c_str(), lua_tostring(getContext(), -1));
+            else
+                handled = lua_toboolean(getContext(), -1);
             lua_settop(getContext(), start);
             return handled;
         }

@@ -577,9 +577,15 @@ int main(int argc, const char *args[]) {
     };
     cranked.config.updateCallback = callback;
     cranked.config.debugPort = debugPort;
-    cranked.load(programPath);
-    if (!startPaused)
-        cranked.start();
+    try {
+        cranked.load(programPath);
+        if (!startPaused)
+            cranked.start();
+    } catch (exception &ex) {
+        fprintf(stderr, "Failed to load game: %s\n", ex.what());
+        fflush(stderr);
+        exited = true;
+    }
 
     while (!exited) {
         try {
