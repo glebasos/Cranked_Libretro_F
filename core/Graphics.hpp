@@ -587,6 +587,7 @@ namespace cranked {
         IntVec2 displayMosaic{};
         float framerate{};
         bool alwaysRedrawSprites{};
+        bool inSpriteUpdateAll{}; // Guards sprite.update() re-entering itself from a sprite's own update callback
         unordered_set<Sprite> allocatedSprites;
         vector<SpriteRef> spriteDrawList;
         vector<IntRect> spriteDirtyRects;

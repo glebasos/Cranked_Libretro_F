@@ -380,7 +380,7 @@ void LCDBitmap_32::drawBitmap(Bitmap bitmap, int x, int y, BitmapDrawMode mode, 
     int endX = bounds.pos.x + bounds.size.x;
     int endY = bounds.pos.y + bounds.size.y;
     for (int i = bounds.pos.y; i < endY; i++)
-        for (int j = bounds.pos.y; j < endX; j++) {
+        for (int j = bounds.pos.x; j < endX; j++) {
             auto pixel = bitmap->getPixel(j, i);
             int pixelX = x + (flipX ? bounds.size.x - 1 - j : j);
             int pixelY = y + (flipY ? bounds.size.y - 1 - i : i);
@@ -497,8 +497,16 @@ void LCDSprite_32::draw() {
     context.drawOffset += drawPos.as<int32>();
 
     if (image) {
-        // Todo: Respect scaling, rotation, clip rect (Probably adding clip rect support to drawing function in addition to context clip rect, or like drawOffset)
-        cranked.graphics.drawBitmap(image, 0, 0, flip, ignoresDrawOffset);
+        // Todo: Respect clip rect (Probably adding clip rect support to drawing function in addition to context clip rect, or like drawOffset)
+        auto savedMode = context.bitmapDrawMode;
+        context.bitmapDrawMode = drawMode; // Sprites draw with their own mode (sprite:setImageDrawMode), not the ambient context mode
+        if (rotation != 0 or scale.x != 1 or scale.y != 1) {
+            BitmapRef transformed = cranked.graphics.rotateBitmap(image, rotation, 0.5f, 0.5f, scale.x, scale.y);
+            cranked.graphics.drawBitmap(transformed, (int)(bounds.size.x / 2) - transformed->width / 2,
+                                        (int)(bounds.size.y / 2) - transformed->height / 2, flip, ignoresDrawOffset);
+        } else
+            cranked.graphics.drawBitmap(image, 0, 0, flip, ignoresDrawOffset);
+        context.bitmapDrawMode = savedMode;
     } else if (tileMap)
         cranked.graphics.drawTileMap(tileMap, 0, 0, ignoresDrawOffset);
     else if (drawFunction)
@@ -592,6 +600,7 @@ DisplayContext &Graphics::pushContext(Bitmap target) {
     auto &ctx = displayContextStack.emplace_back(getContext());
     if (target) {
         ctx.bitmap = target;
+        ctx.focusedImage = nullptr; // An explicit target overrides an inherited lockFocus (else nested pushContext inside lockFocus keeps drawing into the focused image)
         ctx.clipRect = {0, 0, target->width, target->height };
     }
     return ctx;
@@ -1211,6 +1220,9 @@ void Graphics::drawTransformedBitmap(Bitmap bitmap, const Transform &transform, 
 }
 
 Bitmap Graphics::transformBitmap(Bitmap bitmap, const Transform &transform) {
+    // A singular transform (zero scale) would invert to NaN and sample garbage
+    if (transform.m11 * transform.m22 - transform.m12 * transform.m21 == 0)
+        return heap.construct<LCDBitmap_32>(cranked, 0, 0);
     vector corners {
         transform * IntVec2{0, 0},
         transform * IntVec2{bitmap->width, 0},
@@ -1226,6 +1238,8 @@ Bitmap Graphics::transformBitmap(Bitmap bitmap, const Transform &transform) {
     auto transformed = heap.construct<LCDBitmap_32>(cranked, maxBound.x + 1, maxBound.y + 1);
     if (bitmap->mask)
         transformed->mask = transformBitmap(bitmap->mask, transform);
+    else // Areas not covered by the transformed source must be transparent, not black
+        transformed->mask = heap.construct<LCDBitmap_32>(cranked, transformed->width, transformed->height);
 
     Transform inv = transform.invert();
 
@@ -1236,6 +1250,8 @@ Bitmap Graphics::transformBitmap(Bitmap bitmap, const Transform &transform) {
             if (srcPoint.x < 0 or srcPoint.y < 0 or srcPoint.x >= bitmap->width or srcPoint.y >= bitmap->height)
                 continue;
             transformed->setBufferPixel(x, y, bitmap->getBufferPixel(srcPoint.x, srcPoint.y));
+            if (!bitmap->mask)
+                transformed->mask->setBufferPixel(x, y, true);
         }
     }
 

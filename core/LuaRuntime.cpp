@@ -1624,16 +1624,25 @@ static void playdate_graphics_sprite_gc_lua(Cranked *cranked, Sprite sprite) {
 }
 
 static void playdate_graphics_sprite_update_lua(Cranked *cranked, Sprite sprite) {
-    if (sprite)
-        sprite->update();
-    else {
-        cranked->graphics.updateSprites();
-        cranked->graphics.drawSprites();
-    }
+    // Device behavior: this class function updates and draws all sprites even when invoked
+    // as `spr:update()` on a plain sprite (the instance lookup resolves here through the
+    // metatable, and games use that as their per-frame render call).
+    // Reaching it again from inside a sprite's own update callback (a subclass doing
+    // `Foo.super.update(self)`) must be a no-op, as the device's instance update is, or the
+    // update-all would recurse into itself until the C stack blows.
+    auto &graphics = cranked->graphics;
+    if (graphics.inSpriteUpdateAll)
+        return;
+    graphics.inSpriteUpdateAll = true;
+    ScopeExitHelper reset{ [&]{ graphics.inSpriteUpdateAll = false; } };
+    graphics.updateSprites();
+    graphics.drawSprites();
 }
 
-static void playdate_graphics_sprite_setImage_lua(Cranked *cranked, Sprite sprite, Bitmap image, GraphicsFlip flip, float scale, LuaVal yScale) {
-    sprite->setImage(image, flip, scale, yScale.isNumeric() ? yScale.asFloat() : scale);
+static void playdate_graphics_sprite_setImage_lua(Cranked *cranked, Sprite sprite, Bitmap image, GraphicsFlip flip, LuaVal scale, LuaVal yScale) {
+    // Scale args are optional: a missing one means 1, not the 0 a raw float arg would coerce nil to
+    float xScale = scale.isNumeric() ? scale.asFloat() : 1;
+    sprite->setImage(image, flip, xScale, yScale.isNumeric() ? yScale.asFloat() : xScale);
 }
 
 static LuaValRet playdate_graphics_sprite_getImage_lua(Cranked *cranked, Sprite sprite) {

@@ -300,13 +300,15 @@ static void updateInputs() {
     // (descends through intros/menus), then spin the crank from frame 240.
     // Synthetic OS keypresses don't reach RetroArch, so scripted input is the only way to
     // exercise input callbacks in automated runs.
-    static bool autotest = []{ const char *v = getenv("CRANKED_AUTOTEST"); return v && *v && *v != '0'; }();
+    // CRANKED_AUTOTEST=2 presses A without spinning the crank, so menu selections stay put
+    // and the run descends the same path every time.
+    static int autotest = []{ const char *v = getenv("CRANKED_AUTOTEST"); return v && *v ? atoi(v) : 0; }();
     if (autotest) {
         static int autotestFrame = 0;
         autotestFrame++;
         if (autotestFrame >= 120 && autotestFrame % 180 >= 120 && autotestFrame % 180 < 130)
             instance->currentInputs |= (int)PDButtons::A;
-        if (autotestFrame >= 240) {
+        if (autotest != 2 && autotestFrame >= 240) {
             instance->crankAngle = fmodf(instance->crankAngle + 5.0f, 360.0f);
             instance->crankDocked = false;
         }
