@@ -346,7 +346,7 @@ Rom::Font Rom::readFontData(const uint8 *data, bool wide) {
         for (int j = 0; j < 8; j++) {
             bool hasPage = pageUsageFlags[i] & (1 << j);
             if (hasPage)
-                pageIndices[pageIndex++] = i * 64 + j;
+                pageIndices[pageIndex++] = i * 8 + j; // Flags are one bit per page, LSB first: 8 pages per byte
         }
     vector<uint32> pageOffsets(pageCount + 1); // First offset is zero, ignore last offset which points to end
     for (int i = 0; i < pageCount; i++)
@@ -392,9 +392,9 @@ Rom::Font Rom::readFontData(const uint8 *data, bool wide) {
             int longKerningEntries = readUint16LE(glyphData);
             glyphData += 2;
 
-            // Read short kerning table
+            // Read short kerning table (other codepoint is a low byte within this same page)
             for (int j = 0; j < shortKerningEntries; j++) {
-                glyph.kerningTable[page * 256 + glyphData[0]] = *(int8 *) &glyphData[1];
+                glyph.kerningTable[pageIndices[page] * 256 + glyphData[0]] = *(int8 *) &glyphData[1];
                 glyphData += 2;
             }
 
@@ -402,10 +402,10 @@ Rom::Font Rom::readFontData(const uint8 *data, bool wide) {
             if ((shortKerningEntries % 2) == 1)
                 glyphData += 2;
 
-            // Read long kerning table
+            // Read long kerning table: uint24 codepoint at 0, int8 kerning at 3
             for (int j = 0; j < longKerningEntries; j++) {
                 auto entry = readUint32LE(glyphData);
-                glyph.kerningTable[int(entry >> 8)] = bit_cast<int8>(*glyphData);
+                glyph.kerningTable[int(entry & 0xFFFFFF)] = bit_cast<int8>(glyphData[3]);
                 glyphData += 4;
             }
 
