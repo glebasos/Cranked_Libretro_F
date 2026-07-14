@@ -63,7 +63,7 @@ namespace cranked {
     enum class ResourceType;
 
     using std::stoi, std::stol, std::from_chars, std::to_string, std::isalpha, std::popcount;
-    using std::abs, std::min, std::max, std::ceil, std::floor, std::pow, std::log2, std::round;
+    using std::abs, std::min, std::max, std::clamp, std::ceil, std::floor, std::pow, std::log2, std::round;
     using std::string, std::u16string, std::u32string, std::basic_string, std::string_view;
     using std::array, std::vector, std::set, std::map, std::unordered_set, std::unordered_map, std::multimap, std::queue, std::priority_queue;
     using std::function, std::invoke;

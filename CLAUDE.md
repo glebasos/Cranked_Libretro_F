@@ -78,6 +78,15 @@ Debugging toolkit already wired in:
 - MSVC silently ignores C++20 parenthesized aggregate initialization of array members in ctor init lists — it compiles and never evaluates the initializers (this shipped empty system fonts with zero errors). Grep `\[[0-9]\]{};` in headers and check those members' ctors if a subsystem is mysteriously default-initialized on Windows only.
 - MSVC portability already handled in-tree: no `std::aligned_alloc`/`vasprintf`/`SIGTRAP`/`uint`; `fs::path` is wide — use `.string()`/`.generic_string()` (Playdate paths want forward slashes); `/Zc:__cplusplus /utf-8 /bigobj` are required globally; `FFI_BUILDING` must be defined for libffi consumers; standalone asio (`ASIO_STANDALONE`) replaces boost::asio (real headers at `asio_standalone/include`, not `asio/include` which is a symlink-as-file on Windows).
 
+## Audio engine notes
+
+- `PDSynth_32::sampleAudio` is a real oscillator now (sine/square/triangle/sawtooth/noise + ADSR). The `PO*` wavetable waveforms still fall back to square. Envelope stage durations are seconds and **may legitimately be zero** — every stage must jump instantly rather than divide, since one NaN sample poisons the whole master mix for that block.
+- **The mixer gives each channel its own bus**: sources sum into it, the channel's effect chain runs over that, then channel volume/pan applies and it sums into the master accumulator. Effects are per-channel and cannot work without that intermediate buffer.
+- **A source belongs to exactly one channel.** `allocateSource` puts every new source on `mainChannel`, so `channel:addSource()` must *detach* it first — otherwise it stays on both and is sampled twice per block, which doubles the volume and advances a synth's phase twice (i.e. plays the wrong pitch).
+- The mixer applies channel gain but **not** `source->leftVolume/rightVolume`, so a source's `sampleAudio` must bake its own volume/velocity into the int16 it returns.
+- Lua `playNote` accepts a **note-name string** (`"C4"`, `"A#0"`, `"Db2"`) as well as a frequency in Hz — Satellite passes names, so a Hz-only implementation is silently a no-op. `frequencyFromNoteName` in LuaRuntime.cpp; C4 = MIDI 60.
+- **Audio debugging**: set `CRANKED_AUDIO_DUMP=<path>` to write the mixed output as raw s16le stereo PCM. This is the audio analogue of the screenshot loop — analyze it with numpy (FFT for pitch, harmonic ratios to identify a waveform, distinct-value counts to prove quantization). Verifying "it makes noise" is not enough; check the *frequency*.
+
 ## Known gaps
 
-Synth/instrument/sequence audio silent; FilePlayer doesn't stream (whole file buffered); no save states; Lua-side sound finish/loop callbacks not implemented; some native games show display artifacts; encrypted Catalog games unsupported.
+Instrument/sequence/track sources still silent (the synth they'd drive now works); filter/overdrive/ringmod/delay effect `process()` bodies are still stubs (only bitcrusher is implemented); synth LFOs, modulators, wavetables and `setEnvelopeCurvature` ignored; FilePlayer doesn't stream (whole file buffered); no save states; Lua-side sound finish/loop callbacks not dispatched; some native games show display artifacts; encrypted Catalog games unsupported.

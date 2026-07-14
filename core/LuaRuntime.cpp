@@ -2589,16 +2589,63 @@ static Synth playdate_sound_synth_copy_lua(Cranked *cranked, Synth synth) {
     return nullptr;
 }
 
-static void playdate_sound_synth_playNote_lua(Cranked *cranked, Synth synth, float pitch, LuaVal volume, LuaVal length, LuaVal when) {
-    // Todo
+/// Lua pitch args accept a note name as well as a frequency: "C4", "A#3", "Db2" (octave defaults to 4).
+/// Returns 0 if the string isn't a note name.
+static float frequencyFromNoteName(const char *name) {
+    if (!name or !*name)
+        return 0;
+    constexpr int semitones[] { 9, 11, 0, 2, 4, 5, 7 }; // A B C D E F G
+    char letter = (char)toupper((unsigned char)*name++);
+    if (letter < 'A' or letter > 'G')
+        return 0;
+    int semitone = semitones[letter - 'A'];
+    if (*name == '#' or *name == 's' or *name == 'S') {
+        semitone++;
+        name++;
+    } else if (*name == 'b' or *name == 'B') {
+        semitone--;
+        name++;
+    }
+    int octave = 4;
+    if (*name) {
+        char *end{};
+        long parsed = strtol(name, &end, 10);
+        if (end == name or *end)
+            return 0;
+        octave = (int)parsed;
+    }
+    // Scientific pitch notation: C4 is middle C, which is MIDI note 60 (NOTE_C4_HALF_STEPS)
+    return noteToFrequency((float)(12 * (octave + 1) + semitone));
+}
+
+/// Resolve a Lua pitch arg (frequency in Hz, or a note-name string) to a frequency
+static float pitchArgToFrequency(LuaVal pitch) {
+    if (pitch.isString())
+        return frequencyFromNoteName(pitch.asString());
+    return pitch.isNumeric() ? pitch.asFloat() : 0;
+}
+
+static void playdate_sound_synth_playNote_lua(Cranked *cranked, Synth synth, LuaVal pitch, LuaVal volume, LuaVal length, LuaVal when) {
+    playdate_sound_synth_playNote(cranked, synth, pitchArgToFrequency(pitch),
+                                  volume.isNumeric() ? volume.asFloat() : 1.0f,
+                                  length.isNumeric() ? length.asFloat() : -1.0f,
+                                  when.isNumeric() ? (uint32)when.asInt() : 0);
 }
 
 static void playdate_sound_synth_playMIDINote_lua(Cranked *cranked, Synth synth, float note, LuaVal volume, LuaVal length, LuaVal when) {
-    // Todo
+    playdate_sound_synth_playMIDINote(cranked, synth, note,
+                                      volume.isNumeric() ? volume.asFloat() : 1.0f,
+                                      length.isNumeric() ? length.asFloat() : -1.0f,
+                                      when.isNumeric() ? (uint32)when.asInt() : 0);
 }
 
 static void playdate_sound_synth_setADSR_lua(Cranked *cranked, Synth synth, float attack, float decay, float sustain, float release) {
-    // Todo
+    if (!synth->envelope)
+        return;
+    synth->envelope->attack = attack;
+    synth->envelope->decay = decay;
+    synth->envelope->sustain = sustain;
+    synth->envelope->release = release;
 }
 
 static void playdate_sound_synth_setEnvelopeCurvature_lua(Cranked *cranked, Synth synth, float amount) {
@@ -2606,29 +2653,30 @@ static void playdate_sound_synth_setEnvelopeCurvature_lua(Cranked *cranked, Synt
 }
 
 static SynthEnvelope playdate_sound_synth_getEnvelope_lua(Cranked *cranked, Synth synth) {
-    // Todo
-    return nullptr;
+    return synth->envelope;
 }
 
 static void playdate_sound_synth_setFinishCallback_lua(Cranked *cranked, Synth synth, LuaVal callback) {
-    // Todo
+    // Todo: Lua-side sound callbacks aren't dispatched yet (Audio::sampleAudio only invokes native ones)
 }
 
 static void playdate_sound_synth_setLegato_lua(Cranked *cranked, Synth synth, bool flag) {
-    // Todo
+    if (synth->envelope)
+        synth->envelope->legato = flag;
 }
 
 static void playdate_sound_synth_setVolume_lua(Cranked *cranked, Synth synth, float left, LuaVal right) {
-    // Todo
+    playdate_sound_synth_setVolume(cranked, synth, left, right.isNumeric() ? right.asFloat() : left);
 }
 
 static LuaRet playdate_sound_synth_getVolume_lua(Cranked *cranked, Synth synth) {
-    // Todo
-    return 0;
+    lua_pushnumber(cranked->getLuaContext(), synth->leftVolume);
+    lua_pushnumber(cranked->getLuaContext(), synth->rightVolume);
+    return 2;
 }
 
 static void playdate_sound_synth_setWaveform_lua(Cranked *cranked, Synth synth, LuaVal waveform) {
-    // Todo
+    synth->waveform = waveform.asNamedEnum<SoundWaveform>();
 }
 
 static void playdate_sound_synth_setWavetable_lua(Cranked *cranked, Synth synth, AudioSample sample, int sampleSize, int xSize, LuaVal ySize) {

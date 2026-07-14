@@ -224,9 +224,15 @@ namespace cranked {
     struct PDSynth_32 : SoundSource_32 {
         explicit PDSynth_32(Cranked &cranked);
 
-        void sampleAudio(int16 *left, int16 *right, int length) override {
-            // Todo
-        }
+        void sampleAudio(int16 *left, int16 *right, int length) override;
+
+        enum class EnvelopeStage { Idle, Attack, Decay, Sustain, Release };
+
+        /// Start a note. `lengthSamples` < 0 holds the note until noteOff()/stop().
+        void noteOn(float frequency, float vel, int lengthSamples);
+
+        /// Enter the envelope's release stage; the voice keeps sounding until it decays out
+        void noteOff();
 
         SoundWaveform waveform{};
         bool generatorStereo{};
@@ -251,6 +257,16 @@ namespace cranked {
         int playingTime{};
         float instrumentStartFrequency{}, instrumentEndFrequency{};
         float instrumentTranspose{}; // Todo: Is this supposed to be separate?
+
+        // Voice state, advanced by sampleAudio
+        double oscillatorPhase{}; // Normalized to [0, 1) so waveform math is sample-rate agnostic
+        float noteFrequency{};
+        float noteVelocity = 1.0f;
+        int noteSamplesRemaining = -1; // Counts down to the automatic note-off; < 0 holds the note
+        EnvelopeStage envelopeStage{};
+        float envelopeLevel{};
+        float releaseStartLevel{}; // Level when release began, so release always takes its full time
+        uint32 noiseSeed = 0x92d68ca2; // Any nonzero seed; xorshift breaks on zero
     };
 
     struct ControlSignal_32 : PDSynthSignal_32 {
@@ -337,14 +353,15 @@ namespace cranked {
     struct BitCrusher_32 : SoundEffect_32 {
         explicit BitCrusher_32(Cranked &cranked);
 
-        bool process(int32 *left, int32 *right, int length, bool active) override {
-            return false; // Todo
-        }
+        bool process(int32 *left, int32 *right, int length, bool active) override;
 
         float amount{};
         SynthSignalValueRef amountModulator{};
         float undersampling{};
         SynthSignalValueRef undersamplingModulator{};
+        // Sample-and-hold state for undersampling, carried across blocks
+        int32 heldLeft{}, heldRight{};
+        int holdCounter{};
     };
 
     struct RingModulator_32 : SoundEffect_32 {

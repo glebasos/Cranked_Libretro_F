@@ -169,6 +169,151 @@ static void playSampleAudio(AudioPlayerBase &player, AudioSample_32 *sample, int
     player.sampleOffset = (int)player.samplePosition;
 }
 
+void PDSynth_32::noteOn(float frequency, float vel, int lengthSamples) {
+    noteFrequency = frequency;
+    noteVelocity = clamp(vel, 0.0f, 1.0f);
+    noteSamplesRemaining = lengthSamples;
+    playing = true;
+    // Legato only sustains the current contour when a note is already sounding; otherwise the
+    // envelope has to start from silence or the attack would be skipped entirely
+    bool sounding = envelopeStage != EnvelopeStage::Idle;
+    if (!(envelope and envelope->legato and sounding)) {
+        oscillatorPhase = 0;
+        envelopeLevel = 0;
+        envelopeStage = EnvelopeStage::Attack;
+    }
+}
+
+void PDSynth_32::noteOff() {
+    if (envelopeStage == EnvelopeStage::Idle or envelopeStage == EnvelopeStage::Release)
+        return;
+    releaseStartLevel = envelopeLevel;
+    envelopeStage = EnvelopeStage::Release;
+    noteSamplesRemaining = -1;
+}
+
+void PDSynth_32::sampleAudio(int16 *left, int16 *right, int length) {
+    if (!playing or envelopeStage == EnvelopeStage::Idle)
+        return;
+
+    // Envelope times are in seconds and may legitimately be zero, which must mean "instant"
+    // rather than a division by zero (a single NaN sample would poison the whole master mix)
+    float attack = envelope ? max(0.0f, envelope->attack) : 0;
+    float decay = envelope ? max(0.0f, envelope->decay) : 0;
+    float sustain = envelope ? clamp(envelope->sustain, 0.0f, 1.0f) : 1.0f;
+    float release = envelope ? max(0.0f, envelope->release) : 0;
+
+    double phaseStep = (double)max(0.0f, noteFrequency) / AUDIO_SAMPLING_RATE;
+
+    for (int i = 0; i < length; i++) {
+        if (noteSamplesRemaining > 0 and --noteSamplesRemaining == 0)
+            noteOff();
+
+        switch (envelopeStage) {
+            case EnvelopeStage::Attack:
+                if (attack <= 0) {
+                    envelopeLevel = 1;
+                    envelopeStage = EnvelopeStage::Decay;
+                } else if ((envelopeLevel += 1 / (attack * AUDIO_SAMPLING_RATE)) >= 1) {
+                    envelopeLevel = 1;
+                    envelopeStage = EnvelopeStage::Decay;
+                }
+                break;
+            case EnvelopeStage::Decay:
+                if (decay <= 0) {
+                    envelopeLevel = sustain;
+                    envelopeStage = EnvelopeStage::Sustain;
+                } else if ((envelopeLevel -= (1 - sustain) / (decay * AUDIO_SAMPLING_RATE)) <= sustain) {
+                    envelopeLevel = sustain;
+                    envelopeStage = EnvelopeStage::Sustain;
+                }
+                break;
+            case EnvelopeStage::Sustain:
+                envelopeLevel = sustain;
+                break;
+            case EnvelopeStage::Release:
+                if (release <= 0) {
+                    envelopeLevel = 0;
+                    envelopeStage = EnvelopeStage::Idle;
+                } else if ((envelopeLevel -= releaseStartLevel / (release * AUDIO_SAMPLING_RATE)) <= 0) {
+                    envelopeLevel = 0;
+                    envelopeStage = EnvelopeStage::Idle;
+                }
+                break;
+            case EnvelopeStage::Idle:
+                break;
+        }
+
+        if (envelopeStage == EnvelopeStage::Idle) {
+            playing = false;
+            completionPending = true;
+            break;
+        }
+
+        float p = (float)oscillatorPhase;
+        float value;
+        switch (waveform) {
+            case SoundWaveform::Sine:
+                value = sinf(2 * numbers::pi_v<float> * p);
+                break;
+            case SoundWaveform::Sawtooth:
+                value = 2 * p - 1;
+                break;
+            case SoundWaveform::Triangle:
+                value = p < 0.25f ? 4 * p : p < 0.75f ? 2 - 4 * p : 4 * p - 4;
+                break;
+            case SoundWaveform::Noise:
+                // xorshift32: cheap, and unlike rand() it won't be perturbed by other callers
+                noiseSeed ^= noiseSeed << 13;
+                noiseSeed ^= noiseSeed >> 17;
+                noiseSeed ^= noiseSeed << 5;
+                value = (float)(int32)noiseSeed / 2147483648.0f;
+                break;
+            case SoundWaveform::Square:
+            default: // Todo: The PO* wavetable waveforms aren't modelled; square is a stand-in
+                value = p < 0.5f ? 1.0f : -1.0f;
+                break;
+        }
+
+        oscillatorPhase += phaseStep;
+        if (oscillatorPhase >= 1)
+            oscillatorPhase -= floor(oscillatorPhase);
+
+        // The mixer applies channel gain but not per-source volume, so bake it in here
+        float amplitude = value * envelopeLevel * noteVelocity * 32767;
+        left[i] = (int16)clamp(amplitude * leftVolume, -32768.0f, 32767.0f);
+        right[i] = (int16)clamp(amplitude * rightVolume, -32768.0f, 32767.0f);
+    }
+}
+
+bool BitCrusher_32::process(int32 *left, int32 *right, int length, bool active) {
+    float crush = clamp(amount, 0.0f, 1.0f);
+    int holdPeriod = 1 + (int)max(0.0f, undersampling);
+    if (crush <= 0 and holdPeriod <= 1)
+        return false;
+
+    // Quantize to fewer bits: full range (16) at amount 0, down to ~1 bit at amount 1
+    float bits = 16 - 15 * crush;
+    auto step = (int32)max(1.0f, exp2f(16 - bits));
+    float mix = clamp(mixLevel, 0.0f, 1.0f);
+
+    for (int i = 0; i < length; i++) {
+        if (holdCounter <= 0) {
+            heldLeft = left[i];
+            heldRight = right[i];
+            holdCounter = holdPeriod;
+        }
+        holdCounter--;
+
+        auto quantize = [&](int32 v) { return (int32)lround((double)v / step) * step; };
+        int32 wetLeft = quantize(heldLeft), wetRight = quantize(heldRight);
+
+        left[i] = (int32)((float)left[i] * (1 - mix) + (float)wetLeft * mix);
+        right[i] = (int32)((float)right[i] * (1 - mix) + (float)wetRight * mix);
+    }
+    return true;
+}
+
 void SamplePlayer_32::sampleAudio(int16 *left, int16 *right, int length) {
     playSampleAudio(*this, sample.get(), left, right, length);
 }
@@ -183,13 +328,16 @@ void Audio::sampleAudio(int16 *samples, int len) {
     vector<int16> sourceLeft(len), sourceRight(len);
     vector<SoundSource> finished;
 
+    // Effects apply to a channel's whole mixed signal, so each channel needs its own bus before
+    // it can be summed into the master accumulator
+    vector<int32> channelLeft(len), channelRight(len);
+
     auto processChannel = [&](SoundChannel_32 *channel) {
         if (!channel)
             return;
-        float volume = channel->volume;
-        float pan = channel->pan;
-        float leftGain = volume * min(1.0f, 2.0f * (1.0f - pan));
-        float rightGain = volume * min(1.0f, 2.0f * pan);
+        ranges::fill(channelLeft, 0);
+        ranges::fill(channelRight, 0);
+        bool active = false;
         for (auto &sourceRef : channel->sources) {
             SoundSource source = sourceRef.get();
             if (!source or !source->playing)
@@ -198,11 +346,29 @@ void Audio::sampleAudio(int16 *samples, int len) {
             ranges::fill(sourceRight, 0);
             source->sampleAudio(sourceLeft.data(), sourceRight.data(), len);
             for (int i = 0; i < len; i++) {
-                accumulatorLeft[i] += (int32)((float)sourceLeft[i] * leftGain);
-                accumulatorRight[i] += (int32)((float)sourceRight[i] * rightGain);
+                channelLeft[i] += sourceLeft[i];
+                channelRight[i] += sourceRight[i];
             }
+            active = true;
             if (source->completionPending)
                 finished.emplace_back(source);
+        }
+
+        if (!active and channel->effects.empty())
+            return; // Nothing to mix and no effect tail to flush
+
+        for (auto &effectRef : channel->effects)
+            if (SoundEffect effect = effectRef.get())
+                effect->process(channelLeft.data(), channelRight.data(), len, active);
+
+        // Channel volume/pan applies after the effect chain, as on device
+        float volume = channel->volume;
+        float pan = channel->pan;
+        float leftGain = volume * min(1.0f, 2.0f * (1.0f - pan));
+        float rightGain = volume * min(1.0f, 2.0f * pan);
+        for (int i = 0; i < len; i++) {
+            accumulatorLeft[i] += (int32)((float)channelLeft[i] * leftGain);
+            accumulatorRight[i] += (int32)((float)channelRight[i] * rightGain);
         }
     };
 
@@ -216,6 +382,17 @@ void Audio::sampleAudio(int16 *samples, int len) {
     }
 
     sampleTime += len;
+
+    // Debug aid: dump the mixed output as raw s16le stereo PCM so audio can be checked
+    // objectively (FFT/level analysis) the way screenshots are used for rendering
+    static FILE *dump = []() -> FILE * {
+        const char *path = getenv("CRANKED_AUDIO_DUMP");
+        return path and *path ? fopen(path, "wb") : nullptr;
+    }();
+    if (dump) {
+        fwrite(samples, sizeof(int16), len * 2, dump);
+        fflush(dump);
+    }
 
     for (SoundSource source : finished) {
         source->completionPending = false;

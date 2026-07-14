@@ -2498,19 +2498,22 @@ SynthSignalValue cranked::playdate_sound_synth_getParameterModulator(Cranked *cr
 }
 
 void cranked::playdate_sound_synth_playNote(Cranked *cranked, Synth synth, float freq, float vel, float len, uint32 when) {
-    // Todo
+    // Todo: `when` scheduling (only matters for sequences; games play notes immediately)
+    // A non-positive length holds the note until noteOff()/stop()
+    synth->noteOn(freq * exp2f(synth->transposeHalfSteps / 12), vel, len > 0 ? soundFramesFromSeconds(len) : -1);
 }
 
 void cranked::playdate_sound_synth_playMIDINote(Cranked *cranked, Synth synth, float note, float vel, float len, uint32 when) {
-    // Todo
+    playdate_sound_synth_playNote(cranked, synth, noteToFrequency(note), vel, len, when);
 }
 
 void cranked::playdate_sound_synth_noteOff(Cranked *cranked, Synth synth, uint32 when) {
-    // Todo
+    // Todo: `when` scheduling
+    synth->noteOff();
 }
 
 void cranked::playdate_sound_synth_stop(Cranked *cranked, Synth synth) {
-    // Todo
+    synth->noteOff();
 }
 
 void cranked::playdate_sound_synth_setVolume(Cranked *cranked, Synth synth, float left, float right) {
@@ -3025,6 +3028,14 @@ int32 cranked::playdate_sound_channel_addSource(Cranked *cranked, SoundChannel c
     auto source = cranked->audio.sourceFromDerived(sourceDerived);
     if (find(channel->sources.begin(), channel->sources.end(), source) != channel->sources.end())
         return false;
+    // A source belongs to exactly one channel. Sources are created on the main channel, so
+    // without detaching first it would stay there too and get sampled twice per block --
+    // double volume, and a synth's phase advanced twice per frame (i.e. the wrong pitch).
+    if (channel != cranked->audio.mainChannel.get())
+        eraseByEquivalentKey(cranked->audio.mainChannel->sources, source);
+    for (auto &other : cranked->audio.channels)
+        if (other.get() != channel)
+            eraseByEquivalentKey(other->sources, source);
     channel->sources.emplace(source);
     return true;
 }
